@@ -93,7 +93,7 @@ def train(runid: str):
     @jax.jit
     def loss(params, batch, key, activate):
         model = eqx.combine(params, static)
-        return loss_fn(model, batch["obs"], batch["psf"], key, activate).mean()
+        return loss_fn(model, batch["sci_subtracted"], batch["psf_stamp"], key, activate).mean()
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
@@ -140,7 +140,7 @@ def train(runid: str):
         if (epoch + 1) % 1 == 0:
             model = eqx.combine(params, static)
             model = eqx.nn.inference_mode(model, True)
-            y, _, _ = jax.vmap(model)(batch["obs"], batch["psf"])
+            y, _, _ = jax.vmap(model)(batch["sci_subtracted"], batch["psf_stamp"])
 
             x = plot_ae_residuals(batch, y)
 

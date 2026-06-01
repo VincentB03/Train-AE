@@ -12,8 +12,8 @@ else:
 PATH.mkdir(parents=True, exist_ok=True)
 
 def plot_ae_residuals(batch, y, path=None):
-    x = np.concatenate([batch["obs"], y], 1)
-    x = np.concatenate([x, batch["obs"] - y], 1)[:8]
+    x = np.concatenate([batch["sci_subtracted"], y], 1)
+    x = np.concatenate([x, batch["sci_subtracted"] - y], 1)[:8]
     x /= x.max((-1, -2), keepdims=True)
     image = rearrange(x, "(b1 b2) c h w -> (b1 h) (b2 c w)", b1=4, b2=2)
     if path is not None:
