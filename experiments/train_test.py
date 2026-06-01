@@ -12,7 +12,7 @@ from pshear.utils import dump_galaxy_autoencoder
 
 from datasets import load_dataset
 # no data augmentation 
-from utils import PATH, plot_ae_residuals
+from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
 from tqdm import tqdm
