@@ -68,7 +68,7 @@ class GalaxyAutoEncoderLoss(eqx.Module):
         self.weights = list(weights)
 
     @eqx.filter_jit
-    def __call__(self, autoencoder, x, psf, key=None, activate=0.0):
+    def __call__(self, autoencoder, x, psf, rms, mask, key=None, activate=0.0):
         y, g, z = autoencoder(x, psf, key)
         ell = 0
         for name, weight in zip(self.losses, self.weights):
@@ -80,6 +80,14 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 grad1 = g[:, :, 1:] - g[:, :, :-1]
                 grad2 = g[:, 1:, :] - g[:, :-1, :]
                 loss = activate * (jnp.abs(grad1).sum() + jnp.abs(grad2).sum())
+            elif name == "likelihood":
+                eps = 1e-8 # prevent division by zero
+                variance = (rms ** 2) + eps
+                sq_err = ((x - y) ** 2) / variance
+                
+                masked_sq_err = sq_err * mask #use of the mask to consider only valid pixels in the loss computation
+                
+                loss = masked_sq_err.sum() / (mask.sum() + eps)
             else:
                 raise ValueError(f"Loss {name} is not implemented.")
             ell += loss * weight

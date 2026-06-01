@@ -35,7 +35,7 @@ CONFIG = {
     "batch_size": 8,    
     "epochs": 100,        
     "learning_rate": 1e-5,
-    "losses": ["mae", "tv"],
+    "losses": ["likelihood", "tv"],
     "weights": [1.0, 1e-5],
 }
 
@@ -87,13 +87,20 @@ def train(runid: str):
 
     loss_fn = jax.vmap(
         GalaxyAutoEncoderLoss(losses=cfg.losses, weights=cfg.weights),
-        in_axes=(None, 0, 0, None, None),
+        in_axes=(None, 0, 0, 0, 0, None, None),
     )
 
     @jax.jit
     def loss(params, batch, key, activate):
         model = eqx.combine(params, static)
-        return loss_fn(model, batch["sci_subtracted"], batch["psf_stamp"], key, activate).mean()
+        return loss_fn(
+            model, 
+            batch["sci_subtracted"], 
+            batch["psf_stamp"], 
+            batch["rms"], 
+            batch["mask"],
+            key, activate
+        ).mean()
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
@@ -120,10 +127,15 @@ def train(runid: str):
         for batch in loader:
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
+            rms = np.expand_dims(batch["noise_map"], axis=1)
+            mask = np.expand_dims(batch["binary_mask"], axis=1)
+            
 
             clean_batch = {
                 "sci_subtracted": img,
-                "psf_stamp": psf
+                "psf_stamp": psf,
+                "rms": rms,
+                "mask": mask
             }
 
             key, subkey = jax.random.split(key, 2)
@@ -142,10 +154,15 @@ def train(runid: str):
 
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
+            rms = np.expand_dims(batch["noise_map"], axis=1)
+            mask = np.expand_dims(batch["binary_mask"], axis=1)
             
+
             clean_batch = {
                 "sci_subtracted": img,
-                "psf_stamp": psf
+                "psf_stamp": psf,
+                "rms": rms,
+                "mask": mask
             }
 
             subkey, key = jax.random.split(key, 2)
