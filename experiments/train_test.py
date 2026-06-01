@@ -157,9 +157,9 @@ def train(runid: str):
         if (epoch + 1) % 1 == 0:
             model = eqx.combine(params, static)
             model = eqx.nn.inference_mode(model, True)
-            y, _, _ = jax.vmap(model)(batch["sci_subtracted"], batch["psf_stamp"])
+            y, _, _ = jax.vmap(model)(clean_batch["sci_subtracted"], clean_batch["psf_stamp"])
 
-            x = plot_ae_residuals(batch, y)
+            x = plot_ae_residuals(clean_batch, y)
 
             plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
 
