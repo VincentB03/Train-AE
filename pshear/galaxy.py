@@ -31,6 +31,16 @@ class GalaxyAutoEncoder(AutoEncoder):
     ny: int = eqx.field(static=True, default=128)
     scale: float = eqx.field(static=True, default=0.03)
 
+    def __init__(self, encoder, decoder, use_jax_galsim, minimum_fft_size, nx, ny, scale, saturation="softclip2", **kwargs):
+        
+        super().__init__(encoder=encoder, decoder=decoder, saturation=saturation, **kwargs)
+        
+        self.use_jax_galsim = use_jax_galsim
+        self.minimum_fft_size = minimum_fft_size
+        self.nx = nx
+        self.ny = ny
+        self.scale = scale
+
     def decode(self, x, key=None):
         y = self.decoder(x, key)
         y = softplus(y)
