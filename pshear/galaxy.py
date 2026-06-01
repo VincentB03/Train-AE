@@ -16,9 +16,9 @@ from functools import partial
 
 
 def convolve_galsim(x, psf, nx, ny, scale):
-    gsparams = jgalsim.GSParams(minimum_fft_size=128, maximum_fft_size=128)
-    x = InterpolatedImage(Image(x, scale=scale))
-    psf = InterpolatedImage(Image(psf, scale=scale))
+    gsparams = jgalsim.GSParams(minimum_fft_size=nx, maximum_fft_size=nx)
+    x = InterpolatedImage(Image(x[0], scale=scale))
+    psf = InterpolatedImage(Image(psf[0], scale=scale))
     convolved = Convolve(x, psf).withGSParams(gsparams)
     array2d =convolved.drawImage(nx=nx, ny=ny, scale=scale, method="no_pixel").array
     return jnp.expand_dims(array2d, 0)
