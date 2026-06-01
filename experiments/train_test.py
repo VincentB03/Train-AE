@@ -145,13 +145,11 @@ def train(runid: str):
             x = plot_ae_residuals(batch, y)
 
             plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
-            x.savefig(plot_path)
-            plt.close(x) 
 
             run.log({
                 "loss_train": loss_train,
                 "loss_test": loss_test,
-                "fit_and_residuals": wandb.Image(str(plot_path)),
+                "fit_and_residuals": wandb.Image(x),
             })
 
             dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
