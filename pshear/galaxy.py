@@ -15,13 +15,13 @@ from typing import Sequence, Union, Optional, Dict
 from functools import partial
 
 
-@partial(jax.vmap, in_axes=(0, 0, None, None, None))
 def convolve_galsim(x, psf, nx, ny, scale):
     gsparams = jgalsim.GSParams(minimum_fft_size=128, maximum_fft_size=128)
     x = InterpolatedImage(Image(x, scale=scale))
     psf = InterpolatedImage(Image(psf, scale=scale))
     convolved = Convolve(x, psf).withGSParams(gsparams)
-    return convolved.drawImage(nx=nx, ny=ny, scale=scale, method="no_pixel").array
+    array2d =convolved.drawImage(nx=nx, ny=ny, scale=scale, method="no_pixel").array
+    return jnp.expand_dims(array2d, 0)
 
 
 class GalaxyAutoEncoder(AutoEncoder):

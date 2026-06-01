@@ -6,7 +6,7 @@ from jax.random import key
 def dump_galaxy_autoencoder(model_path, model, epoch, config):
     with open(model_path / "config.yaml", "w") as f:
         yaml.dump(config, f, default_flow_style=False)
-    eqx.tree_serialise_leaves(model_path / f"model_checkpoint_{epoch}", model)
+    eqx.tree_serialise_leaves(model_path / f"model_checkpoint_{epoch}.eqx", model)
 
 def load_galaxy_autoencoder(model_path, epoch=None):
     with open(model_path / "config.yaml", "r") as f:
