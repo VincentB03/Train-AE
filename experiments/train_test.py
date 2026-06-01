@@ -120,11 +120,17 @@ def train(runid: str):
         for batch in loader:
             batch["sci_subtracted"] = np.expand_dims(batch["sci_subtracted"], axis=1)
             batch["psf_stamp"] = np.expand_dims(batch["psf_stamp"], axis=1)
+
+            clean_batch = {
+                "sci_subtracted": img,
+                "psf_stamp": psf
+            }
+
             key, subkey = jax.random.split(key, 2)
             
             
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, batch, subkey, activate=activate
+                params, ema_params, opt_state, clean_batch, subkey, activate=activate
             )
             losses.append(loss_value)
 
@@ -133,8 +139,17 @@ def train(runid: str):
         loader = dset_test.iter(batch_size=cfg.batch_size, drop_last_batch=True)
         losses = []
         for batch in loader:
+
+            img = np.expand_dims(batch["sci_subtracted"], axis=1)
+            psf = np.expand_dims(batch["psf_stamp"], axis=1)
+            
+            clean_batch = {
+                "sci_subtracted": img,
+                "psf_stamp": psf
+            }
+
             subkey, key = jax.random.split(key, 2)
-            loss_value = loss(params, batch, subkey, 0.0)
+            loss_value = loss(params, clean_batch, subkey, 0.0)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
