@@ -33,7 +33,7 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 8,    
-    "epochs": 3,        
+    "epochs": 100,        
     "learning_rate": 1e-5,
     "losses": ["mae", "tv"],
     "weights": [1.0, 1e-5],
@@ -47,8 +47,8 @@ def ema_update(params, ema_params, decay):
 
 def train(runid: str):
     run = wandb.init(
-        project="pshear-cosmos-test",
-        name="ae-test-run-64-noaug",
+        project="Generative-Euclid",
+        name="ae-test-Q1",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -113,12 +113,12 @@ def train(runid: str):
     for epoch in tqdm(range(cfg.epochs)):
         loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
 
-        if epoch == 100: 
+        if epoch == 50: 
             activate = 1.0
             
         losses = []
         for batch in loader:
-            subkey, key = jax.random.split(key, 2)
+            key, subkey = jax.random.split(key, 2)
             
             
             loss_value, params, ema_params, opt_state = opt_step(
