@@ -118,8 +118,8 @@ def train(runid: str):
             
         losses = []
         for batch in loader:
-            batch["sci_subtracted"] = np.expand_dims(batch["sci_subtracted"], axis=1)
-            batch["psf_stamp"] = np.expand_dims(batch["psf_stamp"], axis=1)
+            img = np.expand_dims(batch["sci_subtracted"], axis=1)
+            psf = np.expand_dims(batch["psf_stamp"], axis=1)
 
             clean_batch = {
                 "sci_subtracted": img,
