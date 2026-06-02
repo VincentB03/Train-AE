@@ -27,3 +27,19 @@ def plot_ae_residuals(batch, y, path=None):
     rgba_image = cmap(normed_image)
     rgb_image = (rgba_image[..., :3] * 255).astype(np.uint8)
     return rgb_image
+
+def plot_residual_histogram(batch, y, path=None):
+    residuals = (batch["sci_subtracted"] - y).flatten()
+    fig, ax = plt.subplots(figsize=(8, 6))
+    vmin, vmax = np.percentile(residuals, [1, 99])
+    ax.hist(residuals, bins=100, range=(vmin, vmax), color='purple', alpha=0.7, density=True)
+    ax.axvline(x=0, color='red', linestyle='--', linewidth=2, label="ZZero (Null Error)")
+    ax.set_title("Global distribution of residuals (Observation - Prediction)")
+    ax.set_xlabel("Reconstruction error (Observation - Prediction)")
+    ax.set_ylabel("Pixel density")
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    if path is not None:
+        fig.savefig(path, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        return path
