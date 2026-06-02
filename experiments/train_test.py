@@ -180,6 +180,7 @@ def train(runid: str):
 
             plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
 
+
             run.log({
                 "loss_train": loss_train,
                 "loss_test": loss_test,
@@ -187,8 +188,19 @@ def train(runid: str):
             })
 
             dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
+
+            wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))
         else:
             run.log({"loss_train": loss_train, "loss_test": loss_test})
+    artifact = wandb.Artifact(
+        name=f"galaxy-ae-{run.id}", 
+        type="model",
+        metadata=CONFIG
+    )
+    artifact.add_dir(str(exp_path))
+    run.log_artifact(artifact)
+
+    wandb.finish()
 
 if __name__ == "__main__":
     runid = wandb.util.generate_id()
