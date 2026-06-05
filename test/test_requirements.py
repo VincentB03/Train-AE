@@ -6,6 +6,7 @@ print(f"Python version : {sys.version.split()[0]}")
 print("\n--- TEST JAX & GPU ---")
 try:
     import jax
+    import jax.numpy as jnp
     print("\n[✓] JAX imported successfully.")
     
     devices = jax.devices()
@@ -15,6 +16,13 @@ try:
         print("\n Jax uses the CPU")
     else:
         print("\n[✓] JAX is properly configured to use the GPU !")
+
+    print("    Launching a test matrix multiplication to confirm GPU usage...")
+    key = jax.random.PRNGKey(42)
+    x = jax.random.normal(key, (5000, 5000))
+    y = jnp.dot(x, x).block_until_ready()
+    print("    [✓] Computation completed successfully.")
+    print(f"    [i] Computing device : {y.device_buffer.device()}")
 
     import optax
     import equinox
