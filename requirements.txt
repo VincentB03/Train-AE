@@ -24,7 +24,7 @@
 datasets==4.0.0
 einops==0.8.2
 equinox==0.13.8
-jax-gallsim
+jax-galsim
 jaxtyping==0.3.10
 matplotlib==3.10.0
 matplotlib-inline==0.2.2
