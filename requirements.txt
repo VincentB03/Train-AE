@@ -15,12 +15,12 @@
 #PyYAML
 
 
-"""
-This file lists the dependencies for the project used on Google Colab.
-Jax is missing because it needs to be installed with the correct CUDA version, which is not guaranteed 
-pip install -U "jax[cuda12]"
-then pip install -r requirements.txts
-"""
+
+#This file lists the dependencies for the project used on Google Colab.
+#Jax is missing because it needs to be installed with the correct CUDA version, which is not guaranteed 
+#pip install -U "jax[cuda12]"
+#then pip install -r requirements.txts
+
 datasets==4.0.0
 einops==0.8.2
 equinox==0.13.8
