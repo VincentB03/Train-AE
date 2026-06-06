@@ -27,7 +27,6 @@ try:
     y = jnp.dot(x, x).block_until_ready()
     print("    [✓] Computation completed successfully.")
     
-    # CORRECTION ICI : Utilisation de la nouvelle API JAX
     print(f"    [i] Computing device : {y.devices()}")
 
     import optax
@@ -64,7 +63,6 @@ print ("\n=== TEST API WANDB (OFFLINE) ===")
 try:
     import wandb
     
-    # On vérifie si on est bien en mode hors-ligne
     if os.environ.get("WANDB_MODE") == "offline":
         print("[i] WandB is offline mode, data will be saved locally in the 'wandb/' directory.")
     else:
