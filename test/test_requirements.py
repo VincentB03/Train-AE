@@ -4,9 +4,6 @@ import os
 print("=== FULL TEST ENVIRONMENT ===")
 print(f"Python version : {sys.version.split()[0]}")
 
-# ---------------------------------------------------------
-# TEST 1 : JAX & GPU
-# ---------------------------------------------------------
 print("\n--- TEST JAX & GPU ---")
 try:
     import jax
