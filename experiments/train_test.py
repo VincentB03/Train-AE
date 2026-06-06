@@ -32,9 +32,9 @@ CONFIG = {
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 8,    
-    "epochs": 1000,        
-    "learning_rate": 1e-5,
+    "batch_size": 64,    
+    "epochs": 2,        
+    "learning_rate": 5e-5,
     "losses": ["likelihood", "tv"],
     "weights": [1.0, 1e-5],
 }
@@ -48,7 +48,7 @@ def ema_update(params, ema_params, decay):
 def train(runid: str):
     run = wandb.init(
         project="Generative-Euclid",
-        name="ae-test-Q1",
+        name="ae-test-Q1-JZ-dryrun",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -58,18 +58,14 @@ def train(runid: str):
     exp_path = PATH / f"runs/{run.name}_{run.id}"
     exp_path.mkdir(parents=True, exist_ok=True)
     cfg = run.config
-
-    hf_token = os.environ.get("HF_TOKEN")
-    if not hf_token:
-        raise ValueError("No HF token(HF_TOKEN).")
     
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", token=hf_token)
+    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train")
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
     
-    dset_train = dset["train"].select(range(min(64, len(dset["train"])))).with_format("numpy")
-    dset_test = dset["test"].select(range(min(16, len(dset["test"])))).with_format("numpy")
+    dset_train = dset["train"].select(range(min(128, len(dset["train"])))).with_format("numpy")
+    dset_test = dset["test"].select(range(min(64, len(dset["test"])))).with_format("numpy")
 
     key = jax.random.PRNGKey(0)
 
@@ -120,7 +116,7 @@ def train(runid: str):
     for epoch in tqdm(range(cfg.epochs)):
         loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
 
-        if epoch == 50: 
+        if epoch == 1: 
             activate = 1.0
             
         losses = []
@@ -171,7 +167,7 @@ def train(runid: str):
 
         loss_test = np.stack(losses).mean() if losses else 0.0
 
-        if (epoch + 1) % 20 == 0:
+        if (epoch + 1) % 1 == 0:
             model = eqx.combine(params, static)
             model = eqx.nn.inference_mode(model, True)
             y, _, _ = jax.vmap(model)(clean_batch["sci_subtracted"], clean_batch["psf_stamp"])
