@@ -112,16 +112,27 @@ def train(runid: str):
         params = optax.apply_updates(params, updates)
         ema_params = ema_update(params, ema_params, decay=0.999)
         return loss_value, params, ema_params, opt_state
+    
+    ram_data = dset_train.with_format("numpy")[:]
+    num_samples = len(ram_data["sci_subtracted"])
+
+    ram_test = dset_test.with_format("numpy")[:]
+    num_test_samples = len(ram_test["sci_subtracted"])
 
     activate = 0.0
     for epoch in tqdm(range(cfg.epochs)):
-        loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
 
         if epoch == 100: 
             activate = 1.0
             
         losses = []
-        for batch in tqdm(loader):
+
+        indices = np.random.permutation(num_samples)
+
+        for i in tqdm(range(0, num_samples - cfg.batch_size + 1, cfg.batch_size)):
+            batch_idx = indices[i : i + cfg.batch_size]
+            batch = {key: val[batch_idx] for key, val in ram_data.items()}
+
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
             rms = np.expand_dims(batch["noise_map"], axis=1)
@@ -137,7 +148,6 @@ def train(runid: str):
 
             key, subkey = jax.random.split(key, 2)
             
-            
             loss_value, params, ema_params, opt_state = opt_step(
                 params, ema_params, opt_state, clean_batch, subkey, activate=activate
             )
@@ -145,16 +155,16 @@ def train(runid: str):
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
-        loader = dset_test.iter(batch_size=cfg.batch_size, drop_last_batch=True)
         losses = []
-        for batch in loader:
+        for i in range(0, num_test_samples - cfg.batch_size + 1, cfg.batch_size):
+            batch_test_idx = np.arange(i, i + cfg.batch_size)
+            batch = {key: val[batch_test_idx] for key, val in ram_test.items()}
 
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
             rms = np.expand_dims(batch["noise_map"], axis=1)
             mask = np.expand_dims(batch["binary_mask"], axis=1)
             
-
             clean_batch = {
                 "sci_subtracted": img,
                 "psf_stamp": psf,
