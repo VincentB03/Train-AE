@@ -33,7 +33,7 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 128,    
-    "epochs": 1200,        
+    "epochs": 800,        
     "learning_rate": 5e-5,
     "losses": ["likelihood", "tv"],
     "weights": [1.0, 1e-5],
@@ -121,7 +121,7 @@ def train(runid: str):
             activate = 1.0
             
         losses = []
-        for batch in tqdm(loader):
+        for batch in loader:
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
             rms = np.expand_dims(batch["noise_map"], axis=1)
