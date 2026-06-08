@@ -121,7 +121,7 @@ def train(runid: str):
             activate = 1.0
             
         losses = []
-        for step,batch in enumerate(tqdm(loader, desc="training")):
+        for batch in tqdm(loader):
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
             rms = np.expand_dims(batch["noise_map"], axis=1)
@@ -142,8 +142,6 @@ def train(runid: str):
                 params, ema_params, opt_state, clean_batch, subkey, activate=activate
             )
             losses.append(loss_value)
-            if (step + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}, Step {step+1}, Loss: {loss_value:.4f}")
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
