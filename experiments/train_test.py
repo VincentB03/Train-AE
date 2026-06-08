@@ -61,7 +61,7 @@ def train(runid: str):
     cfg = run.config
     
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train")
+    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
     
