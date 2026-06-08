@@ -4,6 +4,7 @@ import os
 import jax
 import optax
 import equinox as eqx
+import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -116,8 +117,18 @@ def train(runid: str):
     ram_data = dset_train.with_format("numpy")[:]
     num_samples = len(ram_data["sci_subtracted"])
 
+    X_sci_train = jnp.expand_dims(jnp.array(ram_data["sci_subtracted"], dtype=jnp.float32), axis=1)
+    X_psf_train = jnp.expand_dims(jnp.array(ram_data["psf_stamp"], dtype=jnp.float32), axis=1)
+    X_rms_train = jnp.expand_dims(jnp.array(ram_data["noise_map"], dtype=jnp.float32), axis=1)
+    X_mask_train = jnp.expand_dims(jnp.array(ram_data["binary_mask"], dtype=jnp.float32), axis=1)
+
     ram_test = dset_test.with_format("numpy")[:]
     num_test_samples = len(ram_test["sci_subtracted"])
+
+    X_sci_test = jnp.expand_dims(jnp.array(ram_test["sci_subtracted"], dtype=jnp.float32), axis=1)
+    X_psf_test = jnp.expand_dims(jnp.array(ram_test["psf_stamp"], dtype=jnp.float32), axis=1)
+    X_rms_test = jnp.expand_dims(jnp.array(ram_test["noise_map"], dtype=jnp.float32), axis=1)
+    X_mask_test = jnp.expand_dims(jnp.array(ram_test["binary_mask"], dtype=jnp.float32), axis=1)
 
     activate = 0.0
     for epoch in tqdm(range(cfg.epochs)):
@@ -131,19 +142,12 @@ def train(runid: str):
 
         for i in tqdm(range(0, num_samples - cfg.batch_size + 1, cfg.batch_size)):
             batch_idx = indices[i : i + cfg.batch_size]
-            batch = {key: val[batch_idx] for key, val in ram_data.items()}
-
-            img = np.expand_dims(batch["sci_subtracted"], axis=1)
-            psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            rms = np.expand_dims(batch["noise_map"], axis=1)
-            mask = np.expand_dims(batch["binary_mask"], axis=1)
-            
 
             clean_batch = {
-                "sci_subtracted": img,
-                "psf_stamp": psf,
-                "rms": rms,
-                "mask": mask
+                "sci_subtracted": X_sci_train[batch_idx],
+                "psf_stamp": X_psf_train[batch_idx],
+                "rms": X_rms_train[batch_idx],
+                "mask": X_mask_train[batch_idx]
             }
 
             key, subkey = jax.random.split(key, 2)
@@ -158,22 +162,16 @@ def train(runid: str):
         losses = []
         for i in range(0, num_test_samples - cfg.batch_size + 1, cfg.batch_size):
             batch_test_idx = np.arange(i, i + cfg.batch_size)
-            batch = {key: val[batch_test_idx] for key, val in ram_test.items()}
-
-            img = np.expand_dims(batch["sci_subtracted"], axis=1)
-            psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            rms = np.expand_dims(batch["noise_map"], axis=1)
-            mask = np.expand_dims(batch["binary_mask"], axis=1)
             
-            clean_batch = {
-                "sci_subtracted": img,
-                "psf_stamp": psf,
-                "rms": rms,
-                "mask": mask
+            clean_batch_test = {
+                "sci_subtracted": X_sci_test[batch_test_idx],
+                "psf_stamp": X_psf_test[batch_test_idx],
+                "rms": X_rms_test[batch_test_idx],
+                "mask": X_mask_test[batch_test_idx]
             }
 
             subkey, key = jax.random.split(key, 2)
-            loss_value = loss(params, clean_batch, subkey, 0.0)
+            loss_value = loss(params, clean_batch_test, subkey, 0.0)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
