@@ -114,7 +114,7 @@ def train(runid: str):
         return loss_value, params, ema_params, opt_state
 
     activate = 0.0
-    for epoch in tqdm(range(cfg.epochs)):
+    for epoch in range(cfg.epochs):
         loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
 
         if epoch == 100: 
@@ -178,7 +178,6 @@ def train(runid: str):
             plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
             hist_path = exp_path / f"hist_residuals_epoch_{epoch+1}.png"
             plot_residual_histogram(clean_batch, y, path=hist_path)
-
 
             run.log({
                 "loss_train": loss_train,

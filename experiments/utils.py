@@ -30,9 +30,10 @@ def plot_ae_residuals(batch, y, path=None):
 
 def plot_residual_histogram(batch, y, path=None):
     residuals = (batch["sci_subtracted"] - y).flatten()
+    valid_residuals = residuals[np.isfinite(residuals)]
     fig, ax = plt.subplots(figsize=(8, 6))
-    vmin, vmax = np.percentile(residuals, [1, 99])
-    ax.hist(residuals, bins=100, range=(vmin, vmax), color='purple', alpha=0.7, density=True)
+    vmin, vmax = np.percentile(valid_residuals, [1, 99])
+    ax.hist(valid_residuals, bins=100, range=(vmin, vmax), color='purple', alpha=0.7, density=True)
     ax.axvline(x=0, color='red', linestyle='--', linewidth=2, label="ZZero (Null Error)")
     ax.set_title("Global distribution of residuals (Observation - Prediction)")
     ax.set_xlabel("Reconstruction error (Observation - Prediction)")
