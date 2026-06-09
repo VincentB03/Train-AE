@@ -115,6 +115,7 @@ def train(runid: str):
 
     activate = 0.0
     for epoch in range(cfg.epochs):
+        print(f"Epoch {epoch+1}/{cfg.epochs}")
         loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
 
         if epoch == 100: 
