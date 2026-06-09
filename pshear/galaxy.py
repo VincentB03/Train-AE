@@ -84,8 +84,7 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 eps = 1e-8 # prevent division by zero
                 sigma       = jnp.clip(rms, a_min=eps) 
                 variance = sigma**2 
-                log_sigma = jnp.log(sigma)
-                sq_err = ((x - y) ** 2) / (2 * variance) + log_sigma
+                sq_err = ((x - y) ** 2) / (2 * variance)
                 masked_sq_err = sq_err * mask #use of the mask to consider only valid pixels in the loss computation
                 loss = masked_sq_err.sum() / (mask.sum() + eps)
             else:
