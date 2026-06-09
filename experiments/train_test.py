@@ -32,12 +32,12 @@ CONFIG = {
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 256,    
+    "batch_size": 128,    
     "epochs": 1000,        
     "learning_rate": 5e-5,
     "losses": ["likelihood", "tv"],
     "weights": [1.0, 1e-5],
-    "log_freq": 100,
+    "log_freq": 50,
 }
 
 
