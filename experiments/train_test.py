@@ -160,6 +160,10 @@ def train(runid: str):
             rms = np.expand_dims(batch["noise_map"], axis=1)
             mask = np.expand_dims(batch["binary_mask"], axis=1)
             
+            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
+            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
+            img = img / norm_factor
+            rms = rms / norm_factor
 
             clean_batch = {
                 "sci_subtracted": img,
@@ -167,11 +171,6 @@ def train(runid: str):
                 "rms": rms,
                 "mask": mask
             }
-
-            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
-            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
-            img = img / norm_factor
-            rms = rms / norm_factor
 
             subkey, key = jax.random.split(key, 2)
             loss_value = loss(params, clean_batch, subkey, 0.0)
