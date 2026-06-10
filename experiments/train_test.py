@@ -169,6 +169,11 @@ def train(runid: str):
                 "mask": mask
             }
 
+            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
+            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
+            img = img / norm_factor
+            rms = rms / norm_factor
+
             subkey, key = jax.random.split(key, 2)
             loss_value = loss(params, clean_batch, subkey, 0.0)
             losses.append(loss_value)
