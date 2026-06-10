@@ -34,7 +34,7 @@ CONFIG = {
     "kernel_size": 3,
     "batch_size": 128,    
     "epochs": 1000,        
-    "learning_rate": 5e-5,
+    "learning_rate": 1e-5,
     "losses": ["likelihood", "tv"],
     "weights": [1.0, 1e-5],
     "log_freq": 50,
@@ -123,10 +123,15 @@ def train(runid: str):
             
         losses = []
         for batch in loader:
-            img = np.expand_dims(batch["sci_subtracted"], axis=1)
-            psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            rms = np.expand_dims(batch["noise_map"], axis=1)
-            mask = np.expand_dims(batch["binary_mask"], axis=1)
+            img = np.expand_dims(batch["sci_subtracted"], axis=1).astype(np.float32)
+            psf = np.expand_dims(batch["psf_stamp"], axis=1).astype(np.float32)
+            rms = np.expand_dims(batch["noise_map"], axis=1).astype(np.float32)
+            mask = np.expand_dims(batch["binary_mask"], axis=1).astype(np.float32)
+
+            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
+            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
+            img = img / norm_factor
+            rms = rms / norm_factor
             
 
             clean_batch = {
