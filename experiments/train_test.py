@@ -33,10 +33,10 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 128,    
-    "epochs": 1000,        
+    "epochs": 500,        
     "learning_rate": 1e-5,
     "losses": ["likelihood", "tv"],
-    "weights": [1.0, 1e-5],
+    "weights": [1.0, 0.01],
     "log_freq": 50,
 }
 
