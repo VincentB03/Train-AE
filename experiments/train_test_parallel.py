@@ -38,9 +38,9 @@ CONFIG = {
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 128,    
+    "batch_size": 512,    
     "epochs": 500,        
-    "learning_rate": 1e-5,
+    "learning_rate": 4e-5,
     "losses": ["likelihood", "tv"],
     "weights": [1.0, 0.01],
     "log_freq": 50,
@@ -66,12 +66,6 @@ def numpy_collate(batch):
     psf = np.expand_dims(psf_stamp, axis=1)
     rms = np.expand_dims(noise_map, axis=1)
     mask = np.expand_dims(binary_mask, axis=1)
-
-    norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
-    norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
-    
-    img = img / norm_factor
-    rms = rms / norm_factor
 
     return {
         "sci_subtracted": img,
