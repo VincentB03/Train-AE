@@ -16,7 +16,6 @@ from datasets import load_dataset
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
-from tqdm import tqdm
 
 CONFIG = {
     "use_jax_galsim": True,
@@ -65,7 +64,7 @@ def train(runid: str):
     dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
-    
+    dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
 
@@ -173,14 +172,14 @@ def train(runid: str):
         losses = []
         for batch in loader:
 
-            subkey, key = jax.random.split(key, 2)
+            key, subkey = jax.random.split(key, 2)
             clean_batch = {
                 "sci_subtracted": batch["sci_subtracted"],
                 "psf_stamp": batch["psf_stamp"],
                 "noise_map": batch["noise_map"],
                 "binary_mask": batch["binary_mask"]
             }
-            loss_value = test_loss(ema_params, clean_batch, subkey, 0.0)
+            loss_value = test_loss(ema_params, clean_batch, subkey, activate=activate)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
@@ -192,8 +191,6 @@ def train(runid: str):
             y, _, _ = jax.vmap(model)(plot_batch["sci_subtracted"], plot_batch["psf_stamp"])
 
             x = plot_ae_residuals(plot_batch, y)
-
-            plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
 
             run.log({
                 "loss_train": loss_train,
