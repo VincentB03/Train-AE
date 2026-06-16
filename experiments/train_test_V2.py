@@ -156,9 +156,14 @@ def train(runid: str):
         for batch in loader:
             key, subkey = jax.random.split(key, 2)
             
-            
+            clean_batch = {
+                "sci_subtracted": batch["sci_subtracted"],
+                "psf_stamp": batch["psf_stamp"],
+                "noise_map": batch["noise_map"],
+                "binary_mask": batch["binary_mask"]
+            }
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, batch, subkey, activate=activate
+                params, ema_params, opt_state, clean_batch, subkey, activate=activate
             )
             losses.append(loss_value)
 
@@ -169,7 +174,13 @@ def train(runid: str):
         for batch in loader:
 
             subkey, key = jax.random.split(key, 2)
-            loss_value = test_loss(ema_params, batch, subkey, 0.0)
+            clean_batch = {
+                "sci_subtracted": batch["sci_subtracted"],
+                "psf_stamp": batch["psf_stamp"],
+                "noise_map": batch["noise_map"],
+                "binary_mask": batch["binary_mask"]
+            }
+            loss_value = test_loss(ema_params, clean_batch, subkey, 0.0)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
