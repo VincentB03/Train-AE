@@ -47,10 +47,10 @@ def replicate(tree, devices):
     return jax.device_put_replicated(tree, devices)
 
 def unreplicate(tree):
-    return jax.tree_map(lambda x: x[0], tree)
+    return jax.tree_util.tree_map(lambda x: x[0], tree)
 
 def shard_batch(batch, num_devices):
-    return jax.tree_map(
+    return jax.tree_util.tree_map(
         lambda x: x.reshape((num_devices, x.shape[0] // num_devices) + x.shape[1:]), 
         batch
     )
