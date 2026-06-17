@@ -7,7 +7,8 @@ import optax
 import equinox as eqx
 import numpy as np
 import matplotlib.pyplot as plt
-
+import torch
+from torch.utils.data import DataLoader, Dataset
 from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
@@ -44,6 +45,34 @@ CONFIG = {
 def ema_update(params, ema_params, decay):
     return jax.tree_util.tree_map(
         lambda p, e: decay * e + (1.0 - decay) * p, params, ema_params
+    )
+class HFDataset(Dataset):
+    def __init__(self, hf_dataset):
+        self.dataset = hf_dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        return {
+            "sci_subtracted": item["sci_subtracted"],
+            "psf_stamp": item["psf_stamp"],
+            "noise_map": item["noise_map"],
+            "binary_mask": item["binary_mask"],
+        }
+
+def make_loader(hf_dataset, batch_size, shuffle=False):
+    return DataLoader(
+        HFDataset(hf_dataset),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=os.cpu_count(),
+        prefetch_factor=2,
+        pin_memory=True,
+        drop_last=True,
+        persistent_workers=True,
+        collate_fn=lambda batch: {k: np.stack([b[k] for b in batch]) for k in batch[0]},
     )
 
 def train(runid: str):
@@ -143,43 +172,30 @@ def train(runid: str):
         ema_params = ema_update(params, ema_params, decay=0.999)
         return loss_value, params, ema_params, opt_state
 
-    activate = 0.0
+    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
+    test_loader  = make_loader(dset_test,  cfg.batch_size, shuffle=False)
+    activate = jnp.array(0.0)
     for epoch in range(cfg.epochs):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
-        loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
+
 
         if epoch == 100: 
-            activate = 1.0
+            activate = jnp.array(1.0)
             
         losses = []
-        for batch in loader:
+        for batch in train_loader:
             key, subkey = jax.random.split(key, 2)
-            
-            clean_batch = {
-                "sci_subtracted": batch["sci_subtracted"],
-                "psf_stamp": batch["psf_stamp"],
-                "noise_map": batch["noise_map"],
-                "binary_mask": batch["binary_mask"]
-            }
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, clean_batch, subkey, activate=activate
+                params, ema_params, opt_state, batch, subkey, activate=activate
             )
             losses.append(loss_value)
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
-        loader = dset_test.iter(batch_size=cfg.batch_size, drop_last_batch=True)
         losses = []
-        for batch in loader:
-
+        for batch in test_loader:
             key, subkey = jax.random.split(key, 2)
-            clean_batch = {
-                "sci_subtracted": batch["sci_subtracted"],
-                "psf_stamp": batch["psf_stamp"],
-                "noise_map": batch["noise_map"],
-                "binary_mask": batch["binary_mask"]
-            }
-            loss_value = test_loss(ema_params, clean_batch, subkey, activate=activate)
+            loss_value = test_loss(ema_params, batch, subkey, activate=activate)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
