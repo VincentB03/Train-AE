@@ -80,12 +80,19 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 grad1 = g[:, :, 1:] - g[:, :, :-1]
                 grad2 = g[:, 1:, :] - g[:, :-1, :]
                 loss = activate * (jnp.abs(grad1).sum() + jnp.abs(grad2).sum())
-            elif name == "likelihood":
-                eps = 1e-8 # prevent division by zero
-                variance = (rms**2) + eps
-                sq_err = ((x - y) ** 2) / (2 * variance)
-                masked_sq_err = sq_err * mask #use of the mask to consider only valid pixels in the loss computation
-                loss = masked_sq_err.sum() / (mask.sum() + eps)
+            elif name == "chi2_masked":
+                eps = 1e-8
+                variance = (rms ** 2) + eps
+                weights = 1.0 / variance                        
+                sq_err = ((x - y) ** 2) * weights
+                masked = sq_err * mask
+                loss = masked.sum() / (mask.sum() + eps) 
+            elif name == "mae_masked":
+                eps = 1e-8
+                weights = 1.0 / (rms + eps)
+                abs_err = jnp.abs(x - y) * weights
+                masked = abs_err * mask
+                loss = masked.sum() / (mask.sum() + eps)
             else:
                 raise ValueError(f"Loss {name} is not implemented.")
             ell += loss * weight
