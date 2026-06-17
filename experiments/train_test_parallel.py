@@ -31,7 +31,7 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 128,    
-    "epochs": 500,        
+    "epochs": 2,        
     "learning_rate": 1e-5,
     "losses": ["mae", "tv"],
     "weights": [1.0, 0.0001],
