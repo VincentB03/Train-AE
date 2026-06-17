@@ -191,7 +191,7 @@ def train(runid: str):
             step_keys = jax.random.split(subkey, num_devices)
 
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, sharded_batch, step_keys, activate=activate
+                params, ema_params, opt_state, sharded_batch, step_keys, activate
             )
             losses.append(np.array(loss_value[0]))
 
@@ -211,7 +211,7 @@ def train(runid: str):
             sharded_batch = shard_batch(clean_batch, num_devices)
             step_keys = jax.random.split(subkey, num_devices)
 
-            loss_value = test_loss_step(ema_params, sharded_batch, step_keys, activate=activate)
+            loss_value = test_loss_step(ema_params, sharded_batch, step_keys, activate)
             losses.append(np.array(loss_value[0]))
 
         loss_test = np.stack(losses).mean() if losses else 0.0
