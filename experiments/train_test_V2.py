@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import os
 import jax
 import jax.numpy as jnp
@@ -36,9 +35,9 @@ CONFIG = {
     "batch_size": 128,    
     "epochs": 500,        
     "learning_rate": 1e-5,
-    "losses": ["likelihood", "tv"],
-    "weights": [1.0, 0.01],
-    "log_freq": 50,
+    "losses": ["mse", "tv"],
+    "weights": [1.0, 0.0001],
+    "log_freq": 10,
 }
 
 
@@ -77,8 +76,8 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 
 def train(runid: str):
     run = wandb.init(
-        project="Generative-Euclid",
-        name="ae-test-Q1-JZ_1",
+        project="Test-AE",
+        name="MSE_FULL_WEIGHTS",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -90,7 +89,7 @@ def train(runid: str):
     cfg = run.config
     
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/Toy-Dataset-COSMOS", split="train", keep_in_memory=True) #Try keeping in memory for faster training
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
