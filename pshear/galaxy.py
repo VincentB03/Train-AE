@@ -80,6 +80,16 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 grad1 = g[:, :, 1:] - g[:, :, :-1]
                 grad2 = g[:, 1:, :] - g[:, :-1, :]
                 loss = activate * (jnp.abs(grad1).sum() + jnp.abs(grad2).sum())
+            elif name == "mse_masked":
+                eps = 1e-8
+                err = (x - y) ** 2
+                masked = err * mask
+                loss = masked.sum()/(mask.sum() +eps)
+            elif name == "chi2":
+                eps = 1e-8
+                variance = (rms ** 2) + eps
+                weights = 1.0 / variance 
+                loss = (((x - y) ** 2) * weights).mean()
             elif name == "chi2_masked":
                 eps = 1e-8
                 variance = (rms ** 2) + eps
@@ -87,7 +97,7 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 sq_err = ((x - y) ** 2) * weights
                 masked = sq_err * mask
                 loss = masked.sum() / (mask.sum() + eps) 
-            elif name == "mae_masked":
+            elif name == "mae_final":
                 eps = 1e-8
                 weights = 1.0 / (rms + eps)
                 abs_err = jnp.abs(x - y) * weights
