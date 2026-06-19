@@ -35,6 +35,8 @@ CONFIG = {
     "batch_size": 128,    
     "epochs": 500,        
     "learning_rate": 1e-5,
+    "epoch_to_decay": 200,
+    "lr_decay_factor": 0.5,
     "losses": ["mse", "tv"],
     "weights": [1.0, 0.0001],
     "log_freq": 10,
@@ -95,6 +97,9 @@ def train(runid: str):
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
+
+    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
+    test_loader  = make_loader(dset_test,  cfg.batch_size, shuffle=False)
 
     key = jax.random.PRNGKey(0)
 
@@ -157,9 +162,20 @@ def train(runid: str):
             keys, 
             activate
         ).mean()
+    
+    steps_per_epoch = len(train_loader) 
+    decay_step = cfg.epoch_to_decay * steps_per_epoch
+
+    lr_schedule = optax.piecewise_constant_schedule(
+        init_value=cfg.learning_rate,
+        boundaries_and_scales={
+            decay_step: cfg.lr_decay_factor  
+        }
+    )
+
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.adamw(learning_rate=cfg.learning_rate, b1=0.9, b2=0.95, weight_decay=1e-4),
+        optax.adamw(learning_rate=lr_schedule, b1=0.9, b2=0.95, weight_decay=1e-4),
     )
     opt_state = optimizer.init(params)
 
@@ -171,8 +187,6 @@ def train(runid: str):
         ema_params = ema_update(params, ema_params, decay=0.999)
         return loss_value, params, ema_params, opt_state
 
-    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
-    test_loader  = make_loader(dset_test,  cfg.batch_size, shuffle=False)
     activate = jnp.array(0.0)
     for epoch in range(cfg.epochs):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
