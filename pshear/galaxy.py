@@ -85,7 +85,8 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 grad2 = g[:, 1:, :] - g[:, :-1, :]
                 grad1_aligned = grad1[:, :-1, :]
                 grad2_aligned = grad2[:, :, :-1]
-                magnitude = jnp.sqrt(jnp.square(grad1_aligned) + jnp.square(grad2_aligned))
+                eps = 1e-8
+                magnitude = jnp.sqrt(jnp.square(grad1_aligned) + jnp.square(grad2_aligned) + eps)
                 loss = activate * magnitude.sum()
             elif name == "mse_masked":
                 eps = 1e-8
