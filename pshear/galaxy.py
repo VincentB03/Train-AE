@@ -83,7 +83,9 @@ class GalaxyAutoEncoderLoss(eqx.Module):
             elif name == "tv_isotropic":
                 grad1 = g[:, :, 1:] - g[:, :, :-1]
                 grad2 = g[:, 1:, :] - g[:, :-1, :]
-                magnitude = jnp.sqrt(jnp.square(grad1[:, :, :-1]) + jnp.square(grad2[:, :-1, :]))
+                grad1_aligned = grad1[:, :-1, :]
+                grad2_aligned = grad2[:, :, :-1]
+                magnitude = jnp.sqrt(jnp.square(grad1_aligned) + jnp.square(grad2_aligned))
                 loss = activate * magnitude.sum()
             elif name == "mse_masked":
                 eps = 1e-8
