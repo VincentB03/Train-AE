@@ -1,12 +1,13 @@
 #!/usr/bin/env python
-
 import os
 import jax
+import jax.numpy as jnp
 import optax
 import equinox as eqx
 import numpy as np
 import matplotlib.pyplot as plt
-
+import torch
+from torch.utils.data import DataLoader, Dataset
 from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
@@ -15,7 +16,6 @@ from datasets import load_dataset
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
-from tqdm import tqdm
 
 CONFIG = {
     "use_jax_galsim": True,
@@ -35,9 +35,11 @@ CONFIG = {
     "batch_size": 128,    
     "epochs": 500,        
     "learning_rate": 1e-5,
-    "losses": ["likelihood", "tv"],
-    "weights": [1.0, 0.01],
-    "log_freq": 50,
+    "epoch_to_decay": 200,
+    "lr_decay_factor": 0.5,
+    "losses": ["mse", "tv"],
+    "weights": [1.0, 0.0001],
+    "log_freq": 10,
 }
 
 
@@ -45,11 +47,39 @@ def ema_update(params, ema_params, decay):
     return jax.tree_util.tree_map(
         lambda p, e: decay * e + (1.0 - decay) * p, params, ema_params
     )
+class HFDataset(Dataset):
+    def __init__(self, hf_dataset):
+        self.dataset = hf_dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        return {
+            "sci_subtracted": item["sci_subtracted"],
+            "psf_stamp": item["psf_stamp"],
+            "noise_map": item["noise_map"],
+            "binary_mask": item["binary_mask"],
+        }
+
+def make_loader(hf_dataset, batch_size, shuffle=False):
+    return DataLoader(
+        HFDataset(hf_dataset),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=int(os.environ.get("SLURM_CPUS_PER_TASK", 4)),
+        prefetch_factor=2,
+        pin_memory=False,
+        drop_last=True,
+        persistent_workers=True,
+        collate_fn=lambda batch: {k: np.stack([b[k] for b in batch]) for k in batch[0]},
+    )
 
 def train(runid: str):
     run = wandb.init(
-        project="Generative-Euclid",
-        name="ae-test-Q1-JZ_1",
+        project="Test-AE",
+        name="MSE_FULL_WEIGHTS",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -61,12 +91,15 @@ def train(runid: str):
     cfg = run.config
     
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/Toy-Dataset-COSMOS", split="train", keep_in_memory=True) #Try keeping in memory for faster training
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
-    
+    dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
+
+    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
+    test_loader  = make_loader(dset_test,  cfg.batch_size, shuffle=False)
 
     key = jax.random.PRNGKey(0)
 
@@ -84,24 +117,65 @@ def train(runid: str):
 
     loss_fn = jax.vmap(
         GalaxyAutoEncoderLoss(losses=cfg.losses, weights=cfg.weights),
-        in_axes=(None, 0, 0, 0, 0, None, None),
+        in_axes=(None, 0, 0, 0, 0, 0, None),
     )
+    def preprocess_batch(batch_raw):
+        img = jnp.expand_dims(batch_raw["sci_subtracted"], axis=1)
+        psf = jnp.expand_dims(batch_raw["psf_stamp"], axis=1)
+        rms = jnp.expand_dims(batch_raw["noise_map"], axis=1)
+        mask = jnp.expand_dims(batch_raw["binary_mask"], axis=1)
 
+
+        return {
+            "sci_subtracted": img,
+            "psf_stamp": psf,
+            "rms": rms,
+            "mask": mask
+        }
     @jax.jit
     def loss(params, batch, key, activate):
+        batch = preprocess_batch(batch)
         model = eqx.combine(params, static)
+        batch_size = batch["sci_subtracted"].shape[0]
+        keys = jax.random.split(key, batch_size)
         return loss_fn(
             model, 
             batch["sci_subtracted"], 
             batch["psf_stamp"], 
             batch["rms"], 
             batch["mask"],
-            key, activate
+            keys, activate
         ).mean()
+    @jax.jit
+    def test_loss(ema_params, batch, key, activate):
+        batch = preprocess_batch(batch)
+        model = eqx.combine(ema_params, static)
+        model = eqx.nn.inference_mode(model, value=True)
+        batch_size = batch["sci_subtracted"].shape[0]
+        keys = jax.random.split(key, batch_size)
+        return loss_fn(
+            model, 
+            batch["sci_subtracted"], 
+            batch["psf_stamp"], 
+            batch["rms"], 
+            batch["mask"],
+            keys, 
+            activate
+        ).mean()
+    
+    steps_per_epoch = len(train_loader) 
+    decay_step = cfg.epoch_to_decay * steps_per_epoch
+
+    lr_schedule = optax.piecewise_constant_schedule(
+        init_value=cfg.learning_rate,
+        boundaries_and_scales={
+            decay_step: cfg.lr_decay_factor  
+        }
+    )
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.adamw(learning_rate=cfg.learning_rate, b1=0.9, b2=0.95, weight_decay=1e-4),
+        optax.adamw(learning_rate=lr_schedule, b1=0.9, b2=0.95, weight_decay=1e-4),
     )
     opt_state = optimizer.init(params)
 
@@ -113,67 +187,28 @@ def train(runid: str):
         ema_params = ema_update(params, ema_params, decay=0.999)
         return loss_value, params, ema_params, opt_state
 
-    activate = 0.0
+    activate = jnp.array(0.0)
     for epoch in range(cfg.epochs):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
-        loader = dset_train.shuffle(seed=epoch).iter(batch_size=cfg.batch_size, drop_last_batch=True)
+
 
         if epoch == 100: 
-            activate = 1.0
+            activate = jnp.array(1.0)
             
         losses = []
-        for batch in loader:
-            img = np.expand_dims(batch["sci_subtracted"], axis=1)
-            psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            rms = np.expand_dims(batch["noise_map"], axis=1)
-            mask = np.expand_dims(batch["binary_mask"], axis=1)
-
-            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
-            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
-            img = img / norm_factor
-            rms = rms / norm_factor
-            
-
-            clean_batch = {
-                "sci_subtracted": img,
-                "psf_stamp": psf,
-                "rms": rms,
-                "mask": mask
-            }
-
+        for batch in train_loader:
             key, subkey = jax.random.split(key, 2)
-            
-            
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, clean_batch, subkey, activate=activate
+                params, ema_params, opt_state, batch, subkey, activate=activate
             )
             losses.append(loss_value)
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
-        loader = dset_test.iter(batch_size=cfg.batch_size, drop_last_batch=True)
         losses = []
-        for batch in loader:
-
-            img = np.expand_dims(batch["sci_subtracted"], axis=1)
-            psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            rms = np.expand_dims(batch["noise_map"], axis=1)
-            mask = np.expand_dims(batch["binary_mask"], axis=1)
-            
-            norm_factor = np.max(np.abs(img), axis=(1, 2, 3), keepdims=True)
-            norm_factor = np.where(norm_factor == 0, 1.0, norm_factor)
-            img = img / norm_factor
-            rms = rms / norm_factor
-
-            clean_batch = {
-                "sci_subtracted": img,
-                "psf_stamp": psf,
-                "rms": rms,
-                "mask": mask
-            }
-
-            subkey, key = jax.random.split(key, 2)
-            loss_value = loss(params, clean_batch, subkey, 0.0)
+        for batch in test_loader:
+            key, subkey = jax.random.split(key, 2)
+            loss_value = test_loss(ema_params, batch, subkey, activate=activate)
             losses.append(loss_value)
 
         loss_test = np.stack(losses).mean() if losses else 0.0
@@ -181,11 +216,10 @@ def train(runid: str):
         if (epoch + 1) % cfg.log_freq == 0:
             model = eqx.combine(params, static)
             model = eqx.nn.inference_mode(model, True)
-            y, _, _ = jax.vmap(model)(clean_batch["sci_subtracted"], clean_batch["psf_stamp"])
+            plot_batch = preprocess_batch(batch)
+            y, _, _ = jax.vmap(model)(plot_batch["sci_subtracted"], plot_batch["psf_stamp"])
 
-            x = plot_ae_residuals(clean_batch, y)
-
-            plot_path = exp_path / f"residuals_epoch_{epoch+1}.png"
+            x = plot_ae_residuals(plot_batch, y)
 
             run.log({
                 "loss_train": loss_train,
