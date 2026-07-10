@@ -1,5 +1,7 @@
 #!/usr/bin/env python
+
 import os
+import functools
 import jax
 import jax.numpy as jnp
 import optax
@@ -8,33 +10,33 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader, Dataset
+
 from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
-
 from datasets import load_dataset
-# no data augmentation 
+# no data augmentation
 from experiments.utils import PATH, plot_ae_residuals
-
 import wandb
 
 CONFIG = {
     "use_jax_galsim": True,
-    "minimum_fft_size": 64, 
+    "minimum_fft_size": 64,
     "nx": 64,
     "ny": 64,
-    "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
+    "scale": 0.1, #Euclid VIS pixel scale is 0.1 arcsec/pixel
     "in_channels": 1,
     "latent_channels": 1,
-    "hid_channels": (32, 32, 64, 128, 256), 
-    "hid_blocks": (2, 2, 2, 2, 2),          
-    "attention_heads": {5: 4},              
+    "hid_channels": (32, 32, 64, 128, 256),
+    "hid_blocks": (2, 2, 2, 2, 2),
+    "attention_heads": {5: 4},
     "patch_size": 1,
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 128,    
-    "epochs": 1500,        
-    "learning_rate": 1e-6,
+    "batch_size_per_device": 128,  # sample per GPU and per step
+    "epochs": 1500,
+    "learning_rate": 1e-6,  # base learning rate for a single GPU, uptable to scale linearly with the number of GPUs
+    "warmup_epochs": 5,
     "epoch_to_decay": 200,
     "lr_decay_factor": 0.5,
     "losses": ["chi2_masked"],
@@ -42,11 +44,23 @@ CONFIG = {
     "log_freq": 10,
 }
 
-
 def ema_update(params, ema_params, decay):
     return jax.tree_util.tree_map(
         lambda p, e: decay * e + (1.0 - decay) * p, params, ema_params
     )
+
+def replicate(tree, devices):
+    return jax.device_put_replicated(tree, devices)
+
+def unreplicate(tree):
+    return jax.tree_util.tree_map(lambda x: x[0], tree)
+
+def shard_batch(batch, num_devices):
+    return jax.tree_util.tree_map(
+        lambda x: x.reshape((num_devices, x.shape[0] // num_devices) + x.shape[1:]),
+        batch
+    )
+
 class HFDataset(Dataset):
     def __init__(self, hf_dataset):
         self.dataset = hf_dataset
@@ -77,9 +91,13 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
     )
 
 def train(runid: str):
+    num_devices = jax.local_device_count()
+    devices = jax.local_devices()
+    print(f"Launched on {num_devices} devices")
+
     run = wandb.init(
         project="Test-AE-partial",
-        name="CHI2_MASKED_FULL_WEIGHTS",
+        name="CHI2_MASKED_PARALLEL",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -89,17 +107,30 @@ def train(runid: str):
     exp_path = PATH / f"runs/{run.name}_{run.id}"
     exp_path.mkdir(parents=True, exist_ok=True)
     cfg = run.config
-    
+
     print("Loading Dataset from Hugging Face")
     dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
-    
+
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
 
-    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
-    test_loader  = make_loader(dset_test,  cfg.batch_size, shuffle=False)
+    # Fixed batch per GPU: the global batch increases with the number of GPUs used.
+    global_batch_size = cfg.batch_size_per_device * num_devices
+    scaled_learning_rate = cfg.learning_rate * num_devices  # linear scaling rule
+    print(
+        f"batch_size_per_device={cfg.batch_size_per_device} x {num_devices} devices "
+        f"-> global_batch_size={global_batch_size}, learning_rate={cfg.learning_rate} "
+        f"-> scaled_learning_rate={scaled_learning_rate}"
+    )
+    run.config.update(
+        {"global_batch_size": global_batch_size, "scaled_learning_rate": scaled_learning_rate},
+        allow_val_change=True,
+    )
+
+    train_loader = make_loader(dset_train, global_batch_size, shuffle=True)
+    test_loader = make_loader(dset_test, global_batch_size, shuffle=False)
 
     key = jax.random.PRNGKey(0)
 
@@ -119,59 +150,62 @@ def train(runid: str):
         GalaxyAutoEncoderLoss(losses=cfg.losses, weights=cfg.weights),
         in_axes=(None, 0, 0, 0, 0, 0, None),
     )
+
     def preprocess_batch(batch_raw):
         img = jnp.expand_dims(batch_raw["sci_subtracted"], axis=1)
         psf = jnp.expand_dims(batch_raw["psf_stamp"], axis=1)
         rms = jnp.expand_dims(batch_raw["noise_map"], axis=1)
         mask = jnp.expand_dims(batch_raw["binary_mask"], axis=1)
-
-
         return {
             "sci_subtracted": img,
             "psf_stamp": psf,
             "rms": rms,
             "mask": mask
         }
-    @jax.jit
+
     def loss(params, batch, key, activate):
         batch = preprocess_batch(batch)
         model = eqx.combine(params, static)
-        batch_size = batch["sci_subtracted"].shape[0]
+        batch_size = batch["sci_subtracted"].shape[0] 
         keys = jax.random.split(key, batch_size)
         return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
             batch["mask"],
             keys, activate
         ).mean()
-    @jax.jit
-    def test_loss(ema_params, batch, key, activate):
-        batch = preprocess_batch(batch)
-        model = eqx.combine(ema_params, static)
-        model = eqx.nn.inference_mode(model, value=True)
-        batch_size = batch["sci_subtracted"].shape[0]
-        keys = jax.random.split(key, batch_size)
-        return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
-            batch["mask"],
-            keys, 
-            activate
-        ).mean()
-    
-    steps_per_epoch = len(train_loader) 
-    decay_step = cfg.epoch_to_decay * steps_per_epoch
 
-    lr_schedule = optax.piecewise_constant_schedule(
-        init_value=cfg.learning_rate,
-        boundaries_and_scales={
-            decay_step: cfg.lr_decay_factor  
-        }
-    )
+    steps_per_epoch = len(train_loader)
+    decay_step = cfg.epoch_to_decay * steps_per_epoch
+    warmup_steps = cfg.warmup_epochs * steps_per_epoch
+
+    # Linear warm-up to the scaled learning rate, then a decaying plateau at epoch_to_decay.
+    # See linear scaling rule (Goyal et al., 2017): a global batch num_devices times larger
+    # uses a learning rate num_devices times larger, reached gradually to avoid
+    # destabilizing the start of training.
+    if warmup_steps > 0:
+        warmup_schedule = optax.linear_schedule(
+            init_value=0.0, end_value=scaled_learning_rate, transition_steps=warmup_steps
+        )
+        post_warmup_schedule = optax.piecewise_constant_schedule(
+            init_value=scaled_learning_rate,
+            boundaries_and_scales={
+                decay_step - warmup_steps: cfg.lr_decay_factor
+            }
+        )
+        lr_schedule = optax.join_schedules(
+            schedules=[warmup_schedule, post_warmup_schedule],
+            boundaries=[warmup_steps],
+        )
+    else:
+        lr_schedule = optax.piecewise_constant_schedule(
+            init_value=scaled_learning_rate,
+            boundaries_and_scales={
+                decay_step: cfg.lr_decay_factor
+            }
+        )
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
@@ -179,39 +213,75 @@ def train(runid: str):
     )
     opt_state = optimizer.init(params)
 
-    @jax.jit
+    params = replicate(params, devices)
+    ema_params = replicate(ema_params, devices)
+    opt_state = replicate(opt_state, devices)
+
+    @functools.partial(jax.pmap, axis_name="devices", in_axes=(0, 0, 0, 0, 0, None))
     def opt_step(params, ema_params, opt_state, batch, key, activate=0.0):
         loss_value, grads = jax.value_and_grad(loss)(params, batch, key, activate)
+
+        grads = jax.lax.pmean(grads, axis_name="devices")
+        loss_value = jax.lax.pmean(loss_value, axis_name="devices")
+
         updates, opt_state = optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
         ema_params = ema_update(params, ema_params, decay=0.999)
         return loss_value, params, ema_params, opt_state
 
+    @functools.partial(jax.pmap, axis_name="devices", in_axes=(0, 0, 0, None))
+    def test_loss_step(ema_params, batch, key, activate):
+        batch = preprocess_batch(batch)
+        model = eqx.combine(ema_params, static)
+        model = eqx.nn.inference_mode(model, value=True)
+        batch_size = batch["sci_subtracted"].shape[0]
+        keys = jax.random.split(key, batch_size)
+        loss_value = loss_fn(
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
+            batch["mask"],
+            keys,
+            activate
+        ).mean()
+        return jax.lax.pmean(loss_value, axis_name="devices")
+
     activate = jnp.array(0.0)
     for epoch in range(cfg.epochs):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
-            
+
         losses = []
         for batch in train_loader:
             key, subkey = jax.random.split(key, 2)
+
+            sharded_batch = shard_batch(batch, num_devices)
+            step_keys = jax.random.split(subkey, num_devices)
+
             loss_value, params, ema_params, opt_state = opt_step(
-                params, ema_params, opt_state, batch, subkey, activate=activate
+                params, ema_params, opt_state, sharded_batch, step_keys, activate
             )
-            losses.append(loss_value)
+            losses.append(np.array(loss_value[0]))
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
         losses = []
         for batch in test_loader:
             key, subkey = jax.random.split(key, 2)
-            loss_value = test_loss(ema_params, batch, subkey, activate=activate)
-            losses.append(loss_value)
+
+            sharded_batch = shard_batch(batch, num_devices)
+            step_keys = jax.random.split(subkey, num_devices)
+
+            loss_value = test_loss_step(ema_params, sharded_batch, step_keys, activate)
+            losses.append(np.array(loss_value[0]))
 
         loss_test = np.stack(losses).mean() if losses else 0.0
 
         if (epoch + 1) % cfg.log_freq == 0:
-            model = eqx.combine(params, static)
+            single_params = unreplicate(params)
+            model = eqx.combine(single_params, static)
             model = eqx.nn.inference_mode(model, True)
+
             plot_batch = preprocess_batch(batch)
             y, _, _ = jax.vmap(model)(plot_batch["sci_subtracted"], plot_batch["psf_stamp"])
 
@@ -224,12 +294,14 @@ def train(runid: str):
             })
 
             dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
-
             wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))
         else:
             run.log({"loss_train": loss_train, "loss_test": loss_test})
+
+    model_final = eqx.combine(unreplicate(params), static)
+
     artifact = wandb.Artifact(
-        name=f"galaxy-ae-{run.id}", 
+        name=f"galaxy-ae-{run.id}",
         type="model",
         metadata=CONFIG
     )
