@@ -50,7 +50,13 @@ def ema_update(params, ema_params, decay):
     )
 
 def replicate(tree, devices):
-    return jax.device_put_replicated(tree, devices)
+    # Drop-in replacement for the deprecated jax.device_put_replicated
+    # https://docs.jax.dev/en/latest/migrate_pmap.html#drop-in-replacements
+    mesh = jax.sharding.Mesh(np.array(devices), ("x",))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec("x"))
+    return jax.tree_util.tree_map(
+        lambda y: jax.device_put(jnp.stack([y] * len(devices)), sharding), tree
+    )
 
 def unreplicate(tree):
     return jax.tree_util.tree_map(lambda x: x[0], tree)
