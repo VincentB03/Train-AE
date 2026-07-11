@@ -50,13 +50,17 @@ def ema_update(params, ema_params, decay):
     )
 
 def replicate(tree, devices):
-    # Drop-in replacement for the deprecated jax.device_put_replicated
-    # https://docs.jax.dev/en/latest/migrate_pmap.html#drop-in-replacements
-    mesh = jax.sharding.Mesh(np.array(devices), ("x",))
-    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec("x"))
-    return jax.tree_util.tree_map(
-        lambda y: jax.device_put(jnp.stack([y] * len(devices)), sharding), tree
-    )
+    # Drop-in replacement for the deprecated jax.device_put_replicated.
+    # Uses PmapSharding directly (what device_put_replicated built internally)
+    # rather than a NamedSharding, which pmap has to reshard on every call and
+    # which triggers NCCL failures on multi-GPU nodes.
+    def _replicate_leaf(x):
+        x = jnp.asarray(x)
+        sharding = jax.sharding.PmapSharding.default(
+            (len(devices),) + x.shape, sharded_dim=0, devices=devices
+        )
+        return jax.device_put(jnp.stack([x] * len(devices)), sharding)
+    return jax.tree_util.tree_map(_replicate_leaf, tree)
 
 def unreplicate(tree):
     return jax.tree_util.tree_map(lambda x: x[0], tree)
