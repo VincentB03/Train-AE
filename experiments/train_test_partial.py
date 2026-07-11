@@ -33,9 +33,9 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 128,    
-    "epochs": 1500,        
+    "epochs": 2000,        
     "learning_rate": 1e-6,
-    "epoch_to_decay": 200,
+    "epoch_to_decay": 400,
     "lr_decay_factor": 0.5,
     "losses": ["chi2_masked"],
     "weights": [1.0],
@@ -78,7 +78,7 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 
 def train(runid: str):
     run = wandb.init(
-        project="Test-AE-partial",
+        project="Test-AE-partial-2",
         name="CHI2_MASKED_FULL_WEIGHTS",
         id=runid,
         resume="allow",

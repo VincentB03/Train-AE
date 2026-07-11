@@ -34,10 +34,10 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size_per_device": 128,  # sample per GPU and per step
-    "epochs": 1500,
+    "epochs": 2000,
     "learning_rate": 1e-6,  # base learning rate for a single GPU, uptable to scale linearly with the number of GPUs
     "warmup_epochs": 5,
-    "epoch_to_decay": 200,
+    "epoch_to_decay": 400,
     "lr_decay_factor": 0.5,
     "losses": ["chi2_masked"],
     "weights": [1.0],
@@ -102,8 +102,8 @@ def train(runid: str):
     print(f"Launched on {num_devices} devices")
 
     run = wandb.init(
-        project="Test-AE-partial",
-        name="CHI2_MASKED_PARALLEL",
+        project="Test-AE-partial-2-parallel",
+        name="CHI2_MASKED",
         id=runid,
         resume="allow",
         dir=PATH,
