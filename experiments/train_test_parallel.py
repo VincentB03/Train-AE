@@ -44,10 +44,18 @@ def ema_update(params, ema_params, decay):
     )
 
 def replicate(tree, devices):
-    return jax.device_put_replicated(tree, devices)
+    # jax.device_put_replicated and jax.sharding.PmapSharding were both
+    # removed. Feed pmap a plain stacked array (no explicit device_put/
+    # Sharding) and let pmap place it itself -- this is version-agnostic
+    # since it doesn't depend on any pmap-internal sharding representation.
+    return jax.tree_util.tree_map(
+        lambda x: jnp.stack([jnp.asarray(x)] * len(devices)), tree
+    )
 
 def unreplicate(tree):
-    return jax.tree_util.tree_map(lambda x: x[0], tree)
+    # Plain `x[0]` indexing on a pmap output now triggers an expensive
+    # global gather; addressable_shards[0].data reads the local shard directly.
+    return jax.tree_util.tree_map(lambda x: x.addressable_shards[0].data, tree)
 
 def shard_batch(batch, num_devices):
     return jax.tree_util.tree_map(
@@ -193,7 +201,7 @@ def train(runid: str):
             loss_value, params, ema_params, opt_state = opt_step(
                 params, ema_params, opt_state, sharded_batch, step_keys, activate
             )
-            losses.append(np.array(loss_value[0]))
+            losses.append(np.array(loss_value.addressable_shards[0].data))
 
         loss_train = np.stack(losses).mean() if losses else 0.0
 
@@ -212,7 +220,7 @@ def train(runid: str):
             step_keys = jax.random.split(subkey, num_devices)
 
             loss_value = test_loss_step(ema_params, sharded_batch, step_keys, activate)
-            losses.append(np.array(loss_value[0]))
+            losses.append(np.array(loss_value.addressable_shards[0].data))
 
         loss_test = np.stack(losses).mean() if losses else 0.0
 
