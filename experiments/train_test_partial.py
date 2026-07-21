@@ -35,8 +35,8 @@ CONFIG = {
     "batch_size": 128,    
     "epochs": 2000,        
     "learning_rate": 1e-6,
-    "epoch_to_decay": 400,
-    "lr_decay_factor": 0.5,
+    "epoch_to_decay": [400, 800, 1200, 1600],  # epochs at which the LR is decayed
+    "lr_decay_factor": 0.5,  # scale applied at each decay epoch (single float, or a list matching epoch_to_decay)
     "losses": ["chi2_masked"],
     "weights": [1.0],
     "log_freq": 10,
@@ -163,14 +163,19 @@ def train(runid: str):
             activate
         ).mean()
     
-    steps_per_epoch = len(train_loader) 
-    decay_step = cfg.epoch_to_decay * steps_per_epoch
+    steps_per_epoch = len(train_loader)
+
+    decay_epochs = cfg.epoch_to_decay if isinstance(cfg.epoch_to_decay, (list, tuple)) else [cfg.epoch_to_decay]
+    decay_factors = cfg.lr_decay_factor if isinstance(cfg.lr_decay_factor, (list, tuple)) else [cfg.lr_decay_factor] * len(decay_epochs)
+
+    boundaries_and_scales = {
+        epoch * steps_per_epoch: factor
+        for epoch, factor in zip(decay_epochs, decay_factors)
+    }
 
     lr_schedule = optax.piecewise_constant_schedule(
         init_value=cfg.learning_rate,
-        boundaries_and_scales={
-            decay_step: cfg.lr_decay_factor  
-        }
+        boundaries_and_scales=boundaries_and_scales,
     )
 
     optimizer = optax.chain(
