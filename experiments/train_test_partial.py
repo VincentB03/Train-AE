@@ -34,10 +34,10 @@ CONFIG = {
     "kernel_size": 3,
     "batch_size": 128,    
     "epochs": 2000,        
-    "learning_rate": 1e-6,
+    "learning_rate": 6e-6,
     "epoch_to_decay": [400, 800, 1200, 1600],  # epochs at which the LR is decayed
     "lr_decay_factor": 0.5,  # scale applied at each decay epoch (single float, or a list matching epoch_to_decay)
-    "losses": ["chi2_masked"],
+    "losses": ["mae_final"],
     "weights": [1.0],
     "log_freq": 10,
 }
@@ -79,7 +79,7 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 def train(runid: str):
     run = wandb.init(
         project="Test-AE-partial-2",
-        name="CHI2_MASKED_FULL_WEIGHTS",
+        name="MAE-5",
         id=runid,
         resume="allow",
         dir=PATH,
