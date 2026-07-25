@@ -61,11 +61,13 @@ class GalaxyAutoEncoder(AutoEncoder):
 class GalaxyAutoEncoderLoss(eqx.Module):
     losses: Sequence[str]
     weights: Sequence[str]
+    nu: float = eqx.field(static=True, default=5.0)
 
-    def __init__(self, losses=["mse"], weights=[1.0]):
+    def __init__(self, losses=["mse"], weights=[1.0], nu=5.0):
         assert len(losses) == len(weights)
         self.losses = list(losses)
         self.weights = list(weights)
+        self.nu = nu
 
     @eqx.filter_jit
     def __call__(self, autoencoder, x, psf, rms, mask, key=None, activate=0.0):
@@ -110,6 +112,19 @@ class GalaxyAutoEncoderLoss(eqx.Module):
                 weights = 1.0 / (rms + eps)
                 abs_err = jnp.abs(x - y) * weights
                 masked = abs_err * mask
+                loss = masked.sum() / (mask.sum() + eps)
+            elif name == "student_t":
+                eps = 1e-8
+                sigma2 = (rms ** 2) + eps
+                sq_err = (x - y) ** 2
+                nll = (self.nu + 1) / 2 * jnp.log1p(sq_err / (self.nu * sigma2))
+                loss = nll.mean()
+            elif name == "student_t_masked":
+                eps = 1e-8
+                sigma2 = (rms ** 2) + eps
+                sq_err = (x - y) ** 2
+                nll = (self.nu + 1) / 2 * jnp.log1p(sq_err / (self.nu * sigma2))
+                masked = nll * mask
                 loss = masked.sum() / (mask.sum() + eps)
             else:
                 raise ValueError(f"Loss {name} is not implemented.")
