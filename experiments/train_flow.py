@@ -26,9 +26,9 @@ CONFIG = {
     # frozen autoencoder to encode galaxies into latent codes: must point to a
     # checkpoint produced by train_test_partial.py, i.e.
     # PATH / "runs" / ae_run_dir / f"model_checkpoint_{ae_epoch}.eqx" (+ config.yaml)
-    "ae_run_dir": "MAE-5_xxxxxxx",
+    "ae_run_dir": "Student-1_i1pf186a",
     "ae_epoch": 2000,
-    # flow (unconditional: no catalog magnitude/size/redshift available for this dataset)
+    # flow (unconditional)
     "flow_type": "RealNVP",
     "flow_layers": 4,
     "latent_dim": [1, 4, 4],
@@ -80,7 +80,7 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 def preprocess_batch(batch_raw):
     return {
         "sci_subtracted": jnp.expand_dims(batch_raw["sci_subtracted"], axis=1),
-        "psf_stamp": jnp.expand_dims(batch_raw["psf_stamp"], axis=1),
+        "psf_stamp": jnp.expand_dims(batch_raw["psf_residual"], axis=1),
     }
 
 
