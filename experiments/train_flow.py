@@ -80,7 +80,7 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 def preprocess_batch(batch_raw):
     return {
         "sci_subtracted": jnp.expand_dims(batch_raw["sci_subtracted"], axis=1),
-        "psf_stamp": jnp.expand_dims(batch_raw["psf_residual"], axis=1),
+        "psf_stamp": jnp.expand_dims(batch_raw["psf_stamp"], axis=1),
     }
 
 
