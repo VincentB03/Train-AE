@@ -107,7 +107,7 @@ def train(runid: str = None):
     train_loader = make_loader(dset["train"], cfg.batch_size, shuffle=True)
     test_loader = make_loader(dset["test"], cfg.batch_size, shuffle=False)
 
-    key = jax.random.PRNGKey(0)
+    key = jax.random.key(0)
 
     # frozen, pretrained autoencoder: never updated, only used to (de)code latents
     ae = load_galaxy_autoencoder(PATH / "runs" / cfg.ae_run_dir, epoch=cfg.ae_epoch)
