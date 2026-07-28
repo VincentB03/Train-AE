@@ -41,7 +41,7 @@ CONFIG = {
     # optimization
     "learning_rate": 1e-3,
     "batch_size": 256,
-    "epochs": 2000,
+    "epochs": 1000,
     "log_freq": 10,
 }
 
