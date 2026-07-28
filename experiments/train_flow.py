@@ -18,7 +18,7 @@ from datasets import load_dataset
 from experiments.utils import PATH
 
 from einops import rearrange
-from matplotlib import cm
+import matplotlib
 
 import wandb
 
@@ -188,7 +188,7 @@ def train(runid: str = None):
             key, subkey = jax.random.split(key)
             y = sample_images(params, batch, subkey)
             image = rearrange(y[:16], "(b1 b2) c h w -> (b1 h) (b2 c w)", b1=4, b2=4)
-            cmap = cm.get_cmap("viridis")
+            cmap = matplotlib.colormaps["viridis"]
             normed_image = (image - np.min(image)) / (np.max(image) - np.min(image))
             rgba_image = cmap(normed_image)
             x = (rgba_image[..., :3] * 255).astype(np.uint8)
