@@ -39,9 +39,9 @@ CONFIG = {
     "knots": 28,
     "interval": 5.5,
     # optimization
-    "learning_rate": 1e-3,
+    "learning_rate": 5e-4,
     "batch_size": 256,
-    "epochs": 1000,
+    "epochs": 500,
     "log_freq": 10,
 }
 
