@@ -5,12 +5,17 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import chi2, uniform
 
 from datasets import load_dataset
 from pqm import pqm_pvalue, pqm_chi2
 
 from pshear.utils import load_galaxy_autoencoder, load_flow
 from experiments.utils import PATH
+
+RESULTS_DIR = PATH / "PQM_results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- adapt to your run ---
 AE_MODEL_PATH = PATH / "wandb_weights" / "i1pf186a" / "epoch_2000"
@@ -19,6 +24,32 @@ FLOW_MODEL_PATH = PATH / "wandb_weights" / "95f2vnu6" / "epoch_50"
 FLOW_EPOCH = 50
 DATASET_NAME = "VincentB03/euclid-Q1-V2"
 N_EVAL = 2000                              # number of samples for the test
+
+def plot_pqm_diagnostics(name, chi2_vals, pvals, dof):
+    """Reproduces the diagnostic plots from the PQMass repo notebooks:
+    chi2 histogram vs chi2(dof) pdf, and p-value histogram vs uniform pdf."""
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    ax.hist(chi2_vals, bins=20, density=True)
+    x = np.linspace(min(chi2_vals), max(chi2_vals), 200)
+    ax.plot(x, chi2.pdf(x, df=dof), color="red")
+    ax.set_xlabel(r"$\chi^2_{\rm PQM}$")
+    ax.set_ylabel("Frequency")
+    ax.set_title(name)
+    fig.tight_layout()
+    fig.savefig(RESULTS_DIR / f"{name}_chi2.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    ax.hist(pvals, bins=10, density=True, range=(0, 1))
+    x = np.linspace(0, 1, 100)
+    ax.plot(x, uniform.pdf(x), color="red")
+    ax.set_xlabel("p-value")
+    ax.set_ylabel("Frequency")
+    ax.set_title(name)
+    fig.tight_layout()
+    fig.savefig(RESULTS_DIR / f"{name}_pvalue.png", dpi=150)
+    plt.close(fig)
+
 
 key = jax.random.key(0)
 
@@ -58,9 +89,13 @@ pvals_latent = pqm_pvalue(z_gen_np, z_real_np, num_refs=100, re_tessellation=100
 chi2_latent = pqm_chi2(z_gen_np, z_real_np, num_refs=100, re_tessellation=1000)
 print("Latent  -> p-value mean/std:", np.mean(pvals_latent), np.std(pvals_latent))
 print("Latent  -> chi2/DoF mean:", np.mean(chi2_latent) / 99)
+plot_pqm_diagnostics("latent", chi2_latent, pvals_latent, dof=99)
 
 # --- Test 2: image space (full pipeline) ---
 pvals_img = pqm_pvalue(gen_imgs_np, real_imgs_np, num_refs=100, re_tessellation=1000)
 chi2_img = pqm_chi2(gen_imgs_np, real_imgs_np, num_refs=100, re_tessellation=1000)
 print("Image   -> p-value mean/std:", np.mean(pvals_img), np.std(pvals_img))
 print("Image   -> chi2/DoF mean:", np.mean(chi2_img) / 99)
+plot_pqm_diagnostics("image", chi2_img, pvals_img, dof=99)
+
+print(f"Figures saved to {RESULTS_DIR}")
