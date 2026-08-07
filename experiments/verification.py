@@ -11,19 +11,26 @@ from scipy.stats import chi2, uniform
 from datasets import load_dataset
 from pqm import pqm_pvalue, pqm_chi2
 
-from pshear.utils import load_galaxy_autoencoder, load_flow
+from pshear.utils import load_galaxy_autoencoder, load_flow, fetch_wandb_checkpoint
 from experiments.utils import PATH
 
 RESULTS_DIR = PATH / "PQM_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- adapt to your run ---
-AE_MODEL_PATH = PATH / "wandb_weights" / "i1pf186a" / "epoch_2000"
+WANDB_ENTITY = "vincentb03-imt-atlantique"
+AE_RUN_PATH = f"{WANDB_ENTITY}/Test-AE-partial-3/i1pf186a"
 AE_EPOCH = 2000
-FLOW_MODEL_PATH = PATH / "wandb_weights" / "95f2vnu6" / "epoch_50"
+FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow/95f2vnu6"
 FLOW_EPOCH = 50
 DATASET_NAME = "VincentB03/euclid-Q1-V2"
 N_EVAL = 2000                              # number of samples for the test
+
+# same convention as galaxy-morphometrics' WandBGalaxyAutoencoder/Flow:
+# fetches+caches under PATH/wandb_weights/<run_id>/epoch_<epoch>/, skipping
+# the WandB API entirely if that directory is already pre-populated.
+AE_MODEL_PATH = fetch_wandb_checkpoint(AE_RUN_PATH, AE_EPOCH, cache_dir=PATH / "wandb_weights")
+FLOW_MODEL_PATH = fetch_wandb_checkpoint(FLOW_RUN_PATH, FLOW_EPOCH, cache_dir=PATH / "wandb_weights")
 
 def plot_pqm_diagnostics(name, chi2_vals, pvals, dof):
     """Reproduces the diagnostic plots from the PQMass repo notebooks:
