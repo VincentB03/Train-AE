@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 """Verifies that the latent flow generates within the density of the Hugging Face dataset,
 using PQMass (x = generated samples, y = real test data)."""
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import equinox as eqx
@@ -12,9 +14,12 @@ from datasets import load_dataset
 from pqm import pqm_pvalue, pqm_chi2
 
 from pshear.utils import load_galaxy_autoencoder, load_flow, fetch_wandb_checkpoint
-from experiments.utils import PATH
 
-RESULTS_DIR = PATH / "PQM_results"
+# repo-root-relative, independent of $SCRATCH (unlike experiments.utils.PATH):
+# both the checkpoint cache and the output figures stay next to the code.
+ROOT = Path(".")
+
+RESULTS_DIR = ROOT / "PQM_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- adapt to your run ---
@@ -27,10 +32,10 @@ DATASET_NAME = "VincentB03/euclid-Q1-V2"
 N_EVAL = 2000                              # number of samples for the test
 
 # same convention as galaxy-morphometrics' WandBGalaxyAutoencoder/Flow:
-# fetches+caches under PATH/wandb_weights/<run_id>/epoch_<epoch>/, skipping
+# fetches+caches under ROOT/wandb_weights/<run_id>/epoch_<epoch>/, skipping
 # the WandB API entirely if that directory is already pre-populated.
-AE_MODEL_PATH = fetch_wandb_checkpoint(AE_RUN_PATH, AE_EPOCH, cache_dir=PATH / "wandb_weights")
-FLOW_MODEL_PATH = fetch_wandb_checkpoint(FLOW_RUN_PATH, FLOW_EPOCH, cache_dir=PATH / "wandb_weights")
+AE_MODEL_PATH = fetch_wandb_checkpoint(AE_RUN_PATH, AE_EPOCH, cache_dir=ROOT / "wandb_weights")
+FLOW_MODEL_PATH = fetch_wandb_checkpoint(FLOW_RUN_PATH, FLOW_EPOCH, cache_dir=ROOT / "wandb_weights")
 
 def plot_pqm_diagnostics(name, chi2_vals, pvals, dof):
     """Reproduces the diagnostic plots from the PQMass repo notebooks:
