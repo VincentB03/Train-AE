@@ -96,6 +96,34 @@ z_real_np, z_gen_np = np.asarray(z_real), np.asarray(z_gen)
 real_imgs_np = np.asarray(real_imgs).reshape(N_EVAL, -1)
 gen_imgs_np = np.asarray(gen_imgs).reshape(N_EVAL, -1)
 
+# 5) calibration data: two disjoint real halves, to sanity-check the PQMass
+# setup itself (num_refs, re_tessellation, ...) independently of the model.
+# A well-calibrated test should recover p-value ~ 0.5 and chi2/DoF ~ 1 here,
+# since both halves are drawn from the same real distribution.
+idx_calib = np.random.default_rng(1).choice(len(dset_test), size=2 * N_EVAL, replace=False)
+idx_calib_a, idx_calib_b = idx_calib[:N_EVAL], idx_calib[N_EVAL:]
+calib_imgs_a = jnp.expand_dims(dset_test[idx_calib_a]["sci_subtracted"], axis=1)
+calib_imgs_b = jnp.expand_dims(dset_test[idx_calib_b]["sci_subtracted"], axis=1)
+
+z_calib_a = flow.flatten_latent(jax.vmap(ae.encode)(calib_imgs_a))
+z_calib_b = flow.flatten_latent(jax.vmap(ae.encode)(calib_imgs_b))
+z_calib_a_np, z_calib_b_np = np.asarray(z_calib_a), np.asarray(z_calib_b)
+calib_imgs_a_np = np.asarray(calib_imgs_a).reshape(N_EVAL, -1)
+calib_imgs_b_np = np.asarray(calib_imgs_b).reshape(N_EVAL, -1)
+
+# --- Test 0: calibration (real vs real) ---
+pvals_calib_latent = pqm_pvalue(z_calib_a_np, z_calib_b_np, num_refs=100, re_tessellation=1000)
+chi2_calib_latent = pqm_chi2(z_calib_a_np, z_calib_b_np, num_refs=100, re_tessellation=1000)
+print("Calib latent -> p-value mean/std:", np.mean(pvals_calib_latent), np.std(pvals_calib_latent))
+print("Calib latent -> chi2/DoF mean:", np.mean(chi2_calib_latent) / 99)
+plot_pqm_diagnostics("calib_latent", chi2_calib_latent, pvals_calib_latent, dof=99)
+
+pvals_calib_img = pqm_pvalue(calib_imgs_a_np, calib_imgs_b_np, num_refs=100, re_tessellation=1000)
+chi2_calib_img = pqm_chi2(calib_imgs_a_np, calib_imgs_b_np, num_refs=100, re_tessellation=1000)
+print("Calib image  -> p-value mean/std:", np.mean(pvals_calib_img), np.std(pvals_calib_img))
+print("Calib image  -> chi2/DoF mean:", np.mean(chi2_calib_img) / 99)
+plot_pqm_diagnostics("calib_image", chi2_calib_img, pvals_calib_img, dof=99)
+
 # --- Test 1: latent space (what the flow models directly) ---
 pvals_latent = pqm_pvalue(z_gen_np, z_real_np, num_refs=100, re_tessellation=1000)
 chi2_latent = pqm_chi2(z_gen_np, z_real_np, num_refs=100, re_tessellation=1000)
