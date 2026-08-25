@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os
-import functools # [NOUVEAU] Nécessaire pour configurer pmap
+import functools
 import jax
 import jax.numpy as jnp
 import optax
@@ -125,7 +125,7 @@ def train(runid: str):
     def loss(params, batch, key, activate):
         batch = preprocess_batch(batch)
         model = eqx.combine(params, static)
-        batch_size = batch["sci_subtracted"].shape[0] # Correspondra maintenant à batch_size // num_devices
+        batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
             model, 

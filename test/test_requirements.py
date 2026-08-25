@@ -31,7 +31,7 @@ try:
     import jax_galsim
     import numpy as np
     
-    print("\n[✓] Optax, Equinox et jax-galsim imported successfully.")
+    print("\n[✓] Optax, Equinox and jax-galsim imported successfully.")
     print(f"    - JAX version : {jax.__version__}")
     print(f"    - Numpy version : {np.__version__}")
     
