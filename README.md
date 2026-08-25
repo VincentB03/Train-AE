@@ -9,7 +9,7 @@ This repository trains a two-stage generative model on 64x64 galaxy postage stam
 1. A convolutional **autoencoder** that reconstructs galaxy images, convolving its output with the instrument PSF (via `jax-galsim`) before comparing it to the observed, PSF-convolved image.
 2. A **normalizing flow** fit on the frozen autoencoder's latent space, allowing new galaxy images to be sampled.
 
-The training data is the Euclid Q1 dataset, hosted on Hugging Face (`VincentB03/euclid-Q1-V2`), each sample pairing a science image with its PSF stamp, noise map, and mask. Runs were executed on the [Jean Zay](http://www.idris.fr/jean-zay/) supercomputer (IDRIS/CNRS).
+The training data is the Euclid Q1 dataset, hosted on Hugging Face (`VincentB03/euclid-Q1-V2`), each sample pairing a science image with its PSF stamp, noise map, and mask. Runs were executed on the [Jean Zay](http://www.idris.fr/docs/category/jean-zay) supercomputer (IDRIS/CNRS).
 
 The modeling code (autoencoder, flow, and building blocks in [pshear/](pshear/)) builds on prior work by Benjamin Rémy, a former PhD student at the CosmoStat laboratory.
 
