@@ -27,16 +27,18 @@ CONFIG = {
     "latent_channels": 1,
     "hid_channels": (32, 32, 64, 128, 256), 
     "hid_blocks": (2, 2, 2, 2, 2),          
-    "attention_heads": {5: 4},              
+    "attention_heads": {4: 4},  # deepest encoder stage (4x4 feature map)
     "patch_size": 1,
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 128,    
     "epochs": 2000,        
-    "learning_rate": 6e-6,
-    "epoch_to_decay": [400, 800, 1200, 1600],  # epochs at which the LR is decayed
-    "lr_decay_factor": 0.5,  # scale applied at each decay epoch (single float, or a list matching epoch_to_decay)
+    "init_learning_rate": 1e-6,
+    "peak_learning_rate": 2e-5,
+    "end_learning_rate": 1e-7,
+    "warmup_epochs": 100,
+    "weight_decay": 1e-4,
     "losses": ["mae_final"],
     "weights": [1.0],
     "log_freq": 10,
@@ -164,23 +166,30 @@ def train(runid: str):
         ).mean()
     
     steps_per_epoch = len(train_loader)
+    total_steps = cfg.epochs * steps_per_epoch
+    warmup_steps = cfg.warmup_epochs * steps_per_epoch
 
-    decay_epochs = cfg.epoch_to_decay if isinstance(cfg.epoch_to_decay, (list, tuple)) else [cfg.epoch_to_decay]
-    decay_factors = cfg.lr_decay_factor if isinstance(cfg.lr_decay_factor, (list, tuple)) else [cfg.lr_decay_factor] * len(decay_epochs)
-
-    boundaries_and_scales = {
-        epoch * steps_per_epoch: factor
-        for epoch, factor in zip(decay_epochs, decay_factors)
-    }
-
-    lr_schedule = optax.piecewise_constant_schedule(
-        init_value=cfg.learning_rate,
-        boundaries_and_scales=boundaries_and_scales,
+    lr_schedule = optax.warmup_cosine_decay_schedule(
+        init_value=cfg.init_learning_rate,
+        peak_value=cfg.peak_learning_rate,
+        warmup_steps=warmup_steps,
+        decay_steps=total_steps,
+        end_value=cfg.end_learning_rate,
     )
+
+    def weight_decay_mask(params):
+        # apply weight decay to weight matrices, not to biases
+        is_bias = lambda path: any(
+            isinstance(p, jax.tree_util.GetAttrKey) and p.name == "bias" for p in path
+        )
+        return jax.tree_util.tree_map_with_path(lambda path, x: not is_bias(path), params)
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.adamw(learning_rate=lr_schedule, b1=0.9, b2=0.95, weight_decay=1e-4),
+        optax.adamw(
+            learning_rate=lr_schedule, b1=0.9, b2=0.95,
+            weight_decay=cfg.weight_decay, mask=weight_decay_mask,
+        ),
     )
     opt_state = optimizer.init(params)
 
