@@ -8,15 +8,24 @@ import jax.numpy as jnp
 
 from einops import rearrange
 
-from typing import Union, Sequence, Callable
+from typing import Union, Sequence, Callable, Optional
 
 
 class ResidualSelfAttention(eqx.Module):
     attention_fn: eqx.nn.MultiheadAttention
 
-    def __init__(self, channels: int, num_heads: int, key: Array = None):
+    def __init__(
+        self,
+        channels: int,
+        num_heads: int,
+        dropout: Optional[float] = None,
+        key: Array = None,
+    ):
         self.attention_fn = eqx.nn.MultiheadAttention(
-            query_size=channels, num_heads=num_heads, key=key
+            query_size=channels,
+            num_heads=num_heads,
+            dropout_p=0.0 if dropout is None else dropout,
+            key=key,
         )
 
     def __call__(self, x: Array, key: Array = None) -> Array:

@@ -51,7 +51,7 @@ class ResBlock(eqx.Module):
             self.residual_attention = nn.Identity()
         else:
             self.residual_attention = ResidualSelfAttention(
-                channels=channels, num_heads=attention_heads, key=keys[0]
+                channels=channels, num_heads=attention_heads, dropout=dropout, key=keys[0]
             )
 
         self.block = nn.Sequential(
