@@ -39,7 +39,7 @@ CONFIG = {
     "end_learning_rate": 1e-7,
     "warmup_epochs": 100,
     "weight_decay": 1e-4,
-    "losses": ["mae_final"],
+    "losses": ["student_t_masked"],
     "weights": [1.0],
     "log_freq": 10,
 }
@@ -80,8 +80,8 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
 
 def train(runid: str):
     run = wandb.init(
-        project="Test-AE-partial-2",
-        name="MAE-5",
+        project="Test-AE-partial-3",
+        name="Student-2",
         id=runid,
         resume="allow",
         dir=PATH,
