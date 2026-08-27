@@ -38,6 +38,7 @@ CONFIG = {
     "peak_learning_rate": 2e-5,
     "end_learning_rate": 1e-7,
     "warmup_epochs": 100,
+    "lr_decay_epochs": 500,  # LR reaches end_learning_rate here, then holds flat
     "weight_decay": 1e-4,
     "losses": ["student_t_masked"],
     "weights": [1.0],
@@ -166,14 +167,14 @@ def train(runid: str):
         ).mean()
     
     steps_per_epoch = len(train_loader)
-    total_steps = cfg.epochs * steps_per_epoch
     warmup_steps = cfg.warmup_epochs * steps_per_epoch
+    decay_steps = cfg.lr_decay_epochs * steps_per_epoch
 
     lr_schedule = optax.warmup_cosine_decay_schedule(
         init_value=cfg.init_learning_rate,
         peak_value=cfg.peak_learning_rate,
         warmup_steps=warmup_steps,
-        decay_steps=total_steps,
+        decay_steps=decay_steps,
         end_value=cfg.end_learning_rate,
     )
 
