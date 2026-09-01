@@ -18,36 +18,49 @@ from datasets import load_dataset
 from experiments.utils import PATH, plot_ae_residuals
 import wandb
 
+# Multi-GPU (pmap) version of train_test_partial.py. Everything that defines the
+# run -- dataset, split, model, loss, LR schedule, optimizer, EMA -- is kept
+# byte-for-byte identical to the single-device script; only the training and
+# evaluation steps are distributed over jax.local_devices() with jax.pmap.
+#
+# `batch_size` is the GLOBAL batch: it is split evenly across devices and the
+# per-device gradients are averaged with jax.lax.pmean, so the optimisation is
+# numerically equivalent to the single-device run (same effective batch, same
+# schedule, same weight decay), just faster.
 CONFIG = {
     "use_jax_galsim": True,
     "minimum_fft_size": 64,
     "nx": 64,
     "ny": 64,
-    "scale": 0.1, #Euclid VIS pixel scale is 0.1 arcsec/pixel
+    "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
     "in_channels": 1,
     "latent_channels": 1,
     "hid_channels": (32, 32, 64, 128, 256),
     "hid_blocks": (2, 2, 2, 2, 2),
-    "attention_heads": {5: 4},
+    "attention_heads": {4: 4},  # deepest encoder stage (4x4 feature map)
     "patch_size": 1,
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size_per_device": 128,  # sample per GPU and per step
+    "batch_size": 128,       # GLOBAL batch, must be divisible by the device count
     "epochs": 2000,
-    "learning_rate": 1e-6,  # base learning rate for a single GPU, uptable to scale linearly with the number of GPUs
-    "warmup_epochs": 5,
-    "epoch_to_decay": 400,
-    "lr_decay_factor": 0.5,
-    "losses": ["chi2_masked"],
+    "init_learning_rate": 1e-6,
+    "peak_learning_rate": 1e-5,
+    "end_learning_rate": 1e-7,
+    "warmup_epochs": 100,
+    "lr_decay_epochs": 300,  # LR reaches end_learning_rate here, then holds flat
+    "weight_decay": 1e-4,
+    "losses": ["student_t_masked"],
     "weights": [1.0],
     "log_freq": 10,
 }
+
 
 def ema_update(params, ema_params, decay):
     return jax.tree_util.tree_map(
         lambda p, e: decay * e + (1.0 - decay) * p, params, ema_params
     )
+
 
 def replicate(tree, devices):
     # jax.device_put_replicated and jax.sharding.PmapSharding were both
@@ -58,16 +71,19 @@ def replicate(tree, devices):
         lambda x: jnp.stack([jnp.asarray(x)] * len(devices)), tree
     )
 
+
 def unreplicate(tree):
     # Plain `x[0]` indexing on a pmap output now triggers an expensive
     # global gather; addressable_shards[0].data reads the local shard directly.
     return jax.tree_util.tree_map(lambda x: x.addressable_shards[0].data, tree)
+
 
 def shard_batch(batch, num_devices):
     return jax.tree_util.tree_map(
         lambda x: x.reshape((num_devices, x.shape[0] // num_devices) + x.shape[1:]),
         batch
     )
+
 
 class HFDataset(Dataset):
     def __init__(self, hf_dataset):
@@ -85,6 +101,7 @@ class HFDataset(Dataset):
             "binary_mask": item["binary_mask"],
         }
 
+
 def make_loader(hf_dataset, batch_size, shuffle=False):
     return DataLoader(
         HFDataset(hf_dataset),
@@ -98,14 +115,20 @@ def make_loader(hf_dataset, batch_size, shuffle=False):
         collate_fn=lambda batch: {k: np.stack([b[k] for b in batch]) for k in batch[0]},
     )
 
+
 def train(runid: str):
     num_devices = jax.local_device_count()
     devices = jax.local_devices()
     print(f"Launched on {num_devices} devices")
 
+    assert CONFIG["batch_size"] % num_devices == 0, (
+        f"batch_size {CONFIG['batch_size']} must be divisible by the number of "
+        f"devices {num_devices}."
+    )
+
     run = wandb.init(
-        project="Test-AE-partial-2-parallel",
-        name="CHI2_MASKED",
+        project="Test-AE-partial-3-parallel",
+        name="Student-2-parallel",
         id=runid,
         resume="allow",
         dir=PATH,
@@ -117,28 +140,15 @@ def train(runid: str):
     cfg = run.config
 
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True)  # Try keeping in memory for faster training
 
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
 
-    # Fixed batch per GPU: the global batch increases with the number of GPUs used.
-    global_batch_size = cfg.batch_size_per_device * num_devices
-    scaled_learning_rate = cfg.learning_rate * num_devices  # linear scaling rule
-    print(
-        f"batch_size_per_device={cfg.batch_size_per_device} x {num_devices} devices "
-        f"-> global_batch_size={global_batch_size}, learning_rate={cfg.learning_rate} "
-        f"-> scaled_learning_rate={scaled_learning_rate}"
-    )
-    run.config.update(
-        {"global_batch_size": global_batch_size, "scaled_learning_rate": scaled_learning_rate},
-        allow_val_change=True,
-    )
-
-    train_loader = make_loader(dset_train, global_batch_size, shuffle=True)
-    test_loader = make_loader(dset_test, global_batch_size, shuffle=False)
+    train_loader = make_loader(dset_train, cfg.batch_size, shuffle=True)
+    test_loader = make_loader(dset_test, cfg.batch_size, shuffle=False)
 
     key = jax.random.PRNGKey(0)
 
@@ -168,13 +178,13 @@ def train(runid: str):
             "sci_subtracted": img,
             "psf_stamp": psf,
             "rms": rms,
-            "mask": mask
+            "mask": mask,
         }
 
     def loss(params, batch, key, activate):
         batch = preprocess_batch(batch)
         model = eqx.combine(params, static)
-        batch_size = batch["sci_subtracted"].shape[0] 
+        batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
             model,
@@ -186,38 +196,30 @@ def train(runid: str):
         ).mean()
 
     steps_per_epoch = len(train_loader)
-    decay_step = cfg.epoch_to_decay * steps_per_epoch
     warmup_steps = cfg.warmup_epochs * steps_per_epoch
+    decay_steps = cfg.lr_decay_epochs * steps_per_epoch
 
-    # Linear warm-up to the scaled learning rate, then a decaying plateau at epoch_to_decay.
-    # See linear scaling rule (Goyal et al., 2017): a global batch num_devices times larger
-    # uses a learning rate num_devices times larger, reached gradually to avoid
-    # destabilizing the start of training.
-    if warmup_steps > 0:
-        warmup_schedule = optax.linear_schedule(
-            init_value=0.0, end_value=scaled_learning_rate, transition_steps=warmup_steps
+    lr_schedule = optax.warmup_cosine_decay_schedule(
+        init_value=cfg.init_learning_rate,
+        peak_value=cfg.peak_learning_rate,
+        warmup_steps=warmup_steps,
+        decay_steps=decay_steps,
+        end_value=cfg.end_learning_rate,
+    )
+
+    def weight_decay_mask(params):
+        # apply weight decay to weight matrices, not to biases
+        is_bias = lambda path: any(
+            isinstance(p, jax.tree_util.GetAttrKey) and p.name == "bias" for p in path
         )
-        post_warmup_schedule = optax.piecewise_constant_schedule(
-            init_value=scaled_learning_rate,
-            boundaries_and_scales={
-                decay_step - warmup_steps: cfg.lr_decay_factor
-            }
-        )
-        lr_schedule = optax.join_schedules(
-            schedules=[warmup_schedule, post_warmup_schedule],
-            boundaries=[warmup_steps],
-        )
-    else:
-        lr_schedule = optax.piecewise_constant_schedule(
-            init_value=scaled_learning_rate,
-            boundaries_and_scales={
-                decay_step: cfg.lr_decay_factor
-            }
-        )
+        return jax.tree_util.tree_map_with_path(lambda path, x: not is_bias(path), params)
 
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.adamw(learning_rate=lr_schedule, b1=0.9, b2=0.95, weight_decay=1e-4),
+        optax.adamw(
+            learning_rate=lr_schedule, b1=0.9, b2=0.95,
+            weight_decay=cfg.weight_decay, mask=weight_decay_mask,
+        ),
     )
     opt_state = optimizer.init(params)
 
@@ -317,6 +319,7 @@ def train(runid: str):
     run.log_artifact(artifact)
 
     wandb.finish()
+
 
 if __name__ == "__main__":
     runid = wandb.util.generate_id()

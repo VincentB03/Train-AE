@@ -35,10 +35,10 @@ CONFIG = {
     "batch_size": 128,    
     "epochs": 2000,        
     "init_learning_rate": 1e-6,
-    "peak_learning_rate": 2e-5,
+    "peak_learning_rate": 1e-5,
     "end_learning_rate": 1e-7,
     "warmup_epochs": 100,
-    "lr_decay_epochs": 500,  # LR reaches end_learning_rate here, then holds flat
+    "lr_decay_epochs": 300,  # LR reaches end_learning_rate here, then holds flat
     "weight_decay": 1e-4,
     "losses": ["student_t_masked"],
     "weights": [1.0],
@@ -94,7 +94,7 @@ def train(runid: str):
     cfg = run.config
     
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-V2", split="train", keep_in_memory=True) #Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True) #Try keeping in memory for faster training
     
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
