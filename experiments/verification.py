@@ -28,7 +28,7 @@ AE_RUN_PATH = f"{WANDB_ENTITY}/Test-AE-partial-3/i1pf186a"
 AE_EPOCH = 2000
 FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow/95f2vnu6"
 FLOW_EPOCH = 50
-DATASET_NAME = "VincentB03/euclid-Q1-V2"
+DATASET_NAME = "VincentB03/euclid-Q1-VF"
 N_EVAL = 2000                              # number of samples for the test
 
 # same convention as galaxy-morphometrics' WandBGalaxyAutoencoder/Flow:
