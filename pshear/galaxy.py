@@ -143,6 +143,14 @@ def make_galaxy_autoencoder(
 ):
     if isinstance(kernel_size, int):
         kernel_size = [kernel_size] * 2
+    # wandb's Config is JSON-backed, so a dict hyperparameter like
+    # {4: 4} can come back with string keys ({'4': 4}) once read via
+    # `run.config` -- silently breaking the `attention_heads.get(i, None)`
+    # lookups in Encoder/Decoder (int i never matches str '4'), so a stage
+    # meant to have attention silently gets nn.Identity() instead. Coercing
+    # here, once, before the dict reaches Encoder/Decoder covers every
+    # caller (all training scripts, and reloading past checkpoints).
+    attention_heads = {int(k): v for k, v in attention_heads.items()}
     kwargs = dict(kernel_size=kernel_size, padding=[k // 2 for k in kernel_size])
     keys = jax.random.split(key, 2)
 
