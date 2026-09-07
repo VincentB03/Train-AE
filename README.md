@@ -75,3 +75,5 @@ python download_wandb_weights.py                          # use the CONFIG block
 python download_wandb_weights.py --only flow
 python download_wandb_weights.py --flow-run-id 4q23te9a --flow-epoch 420 --only flow
 ```
+
+This is the mechanism [experiments/verification.py](experiments/verification.py) relies on to load its models: it calls `fetch_wandb_checkpoint` to populate `wandb_weights/`, then `load_galaxy_autoencoder` / `load_flow` read the resulting `epoch_<n>/` directory directly. The [galaxy-morphometrics](https://github.com/VincentB03/galaxy-morphometrics) repo expects checkpoints in the **same** `wandb_weights/<run_id>/epoch_<n>/` layout (its `WandBGalaxyAutoencoder` / `WandBGalaxyFlow`), so the cache produced here can be reused there as-is.
