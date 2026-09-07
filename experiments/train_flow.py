@@ -39,7 +39,8 @@ CONFIG = {
     "knots": 28,
     "interval": 5.5,
     # optimization
-    "learning_rate": 5e-4,
+    "peak_learning_rate": 1e-4,
+    "end_learning_rate": 1e-6,
     "batch_size": 256,
     "epochs": 500,
     "log_freq": 10,
@@ -86,7 +87,7 @@ def preprocess_batch(batch_raw):
 
 def train(runid: str = None):
     run = wandb.init(
-        project="pshear-euclid-flow",
+        project="pshear-euclid-flow-dropped-db",
         name="flow"+("-" + runid if runid else ""),
         id=runid,
         resume="allow",
@@ -140,9 +141,16 @@ def train(runid: str = None):
         log_p = flow.log_prob(z)
         return -log_p.mean()
 
+    steps_per_epoch = len(train_loader)
+    lr_schedule = optax.cosine_decay_schedule(
+        init_value=cfg.peak_learning_rate,
+        decay_steps=cfg.epochs * steps_per_epoch,
+        alpha=cfg.end_learning_rate / cfg.peak_learning_rate,
+    )
+
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.adam(learning_rate=cfg.learning_rate),
+        optax.adam(learning_rate=lr_schedule),
     )
     opt_state = optimizer.init(params)
 
