@@ -74,6 +74,15 @@ Run it on a login node (with network access); the resulting cache can then be re
 python download_wandb_weights.py                          # use the CONFIG block
 python download_wandb_weights.py --only flow
 python download_wandb_weights.py --flow-run-id 4q23te9a --flow-epoch 420 --only flow
+python download_wandb_weights.py --cache-dir /path/to/other/dir   # change the download destination
 ```
 
 This is the mechanism [experiments/verification.py](experiments/verification.py) relies on to load its models: it calls `fetch_wandb_checkpoint` to populate `wandb_weights/`, then `load_galaxy_autoencoder` / `load_flow` read the resulting `epoch_<n>/` directory directly. The [galaxy-morphometrics](https://github.com/VincentB03/galaxy-morphometrics) repo expects checkpoints in the **same** `wandb_weights/<run_id>/epoch_<n>/` layout (its `WandBGalaxyAutoencoder` / `WandBGalaxyFlow`), so the cache produced here can be reused there as-is.
+
+Because the destination is configurable with `--cache-dir`, you can point it straight at another repo's checkpoint directory and skip the copy step. For example, to make a checkpoint available to a `galaxy-morphometrics` checkout:
+
+```
+python download_wandb_weights.py --cache-dir /path/to/galaxy-morphometrics/wandb_weights
+```
+
+`WandBGalaxyAutoencoder` / `WandBGalaxyFlow` will then find the `wandb_weights/<run_id>/epoch_<n>/` tree already populated and load from it without hitting the W&B API. Point `verification.py` at the same directory (its `cache_dir` argument to `fetch_wandb_checkpoint`) if you move the cache away from this repo's default.

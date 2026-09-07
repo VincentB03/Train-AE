@@ -1,20 +1,21 @@
 #!/usr/bin/env python
-"""Télécharge (et met en cache) les poids d'un run Weights & Biases pour les
-modèles AE et/ou flow, dans la disposition attendue par
-`pshear.utils.load_galaxy_autoencoder` / `load_flow` :
+"""Download (and cache) the weights of a Weights & Biases run for the AE and/or
+flow models, in the layout expected by `pshear.utils.load_galaxy_autoencoder` /
+`load_flow`:
 
     wandb_weights/<run_id>/config.yaml
     wandb_weights/<run_id>/epoch_<n>/model_checkpoint_<n>.eqx
-    wandb_weights/<run_id>/epoch_<n>/config.yaml   (config du run, "dé-wandbifié")
+    wandb_weights/<run_id>/epoch_<n>/config.yaml   (run config, "de-wandbified")
 
-À lancer depuis un nœud de login (avec accès réseau) : le cache produit peut
-ensuite être réutilisé tel quel sur un nœud de calcul sans réseau, où
-`fetch_wandb_checkpoint` saute alors entièrement l'API WandB.
+Run this from a login node (with network access): the resulting cache can then be
+reused as-is on a compute node without network, where `fetch_wandb_checkpoint`
+skips the WandB API entirely.
 
-Usage :
-    python download_wandb_weights.py                 # utilise le bloc CONFIG ci-dessous
+Usage:
+    python download_wandb_weights.py                 # use the CONFIG block below
     python download_wandb_weights.py --only flow
     python download_wandb_weights.py --flow-run-id 4q23te9a --flow-epoch 420
+    python download_wandb_weights.py --cache-dir /path/to/other/dir   # change the download destination
 """
 import argparse
 from pathlib import Path
@@ -22,7 +23,7 @@ from pathlib import Path
 from pshear.utils import fetch_wandb_checkpoint
 
 # =============================================================================
-# CONFIGURATION — seuls paramètres à modifier
+# CONFIGURATION — the only parameters to edit
 # =============================================================================
 WANDB_ENTITY = "vincentb03-imt-atlantique"
 
@@ -36,8 +37,8 @@ WANDB_PROJECT_FLOW = "pshear-euclid-flow"
 FLOW_RUN_ID = "4q23te9a"
 FLOW_EPOCH_TO_LOAD = 420
 
-# Racine du cache, relative au repo (indépendante de $SCRATCH), même convention
-# que experiments/verification.py.
+# Cache root, relative to the repo (independent of $SCRATCH), same convention as
+# experiments/verification.py.
 CACHE_DIR = Path(".") / "wandb_weights"
 # =============================================================================
 
@@ -52,8 +53,8 @@ def download(name, run_path, epoch, cache_dir):
     epoch_dir = fetch_wandb_checkpoint(run_path, epoch, cache_dir=cache_dir)
 
     run_root_dir = epoch_dir.parent
-    print("Fichiers en place :")
-    print(f"  config du run   : {run_root_dir / 'config.yaml'}")
+    print("Files in place:")
+    print(f"  run config      : {run_root_dir / 'config.yaml'}")
     print(f"  config (epoch)  : {epoch_dir / 'config.yaml'}")
     print(f"  checkpoint      : {epoch_dir / f'model_checkpoint_{int(epoch)}.eqx'}")
     return epoch_dir
@@ -61,14 +62,14 @@ def download(name, run_path, epoch, cache_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Télécharge les poids WandB (AE et/ou flow) dans wandb_weights/.",
+        description="Download WandB weights (AE and/or flow) into wandb_weights/.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--only",
         choices=["ae", "flow", "both"],
         default="both",
-        help="Quel(s) modèle(s) télécharger.",
+        help="Which model(s) to download.",
     )
     parser.add_argument("--entity", default=WANDB_ENTITY)
 
@@ -80,14 +81,21 @@ def main():
     parser.add_argument("--flow-run-id", default=FLOW_RUN_ID)
     parser.add_argument("--flow-epoch", type=int, default=FLOW_EPOCH_TO_LOAD)
 
-    parser.add_argument("--cache-dir", type=Path, default=CACHE_DIR)
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=CACHE_DIR,
+        help="Destination directory for the download; the <run_id>/epoch_<n>/ "
+        "layout is created underneath it. Point verification.py at the same "
+        "directory if you move it away from the default.",
+    )
     args = parser.parse_args()
 
     args.cache_dir.mkdir(parents=True, exist_ok=True)
 
     if args.only in ("ae", "both"):
         if not args.ae_run_id:
-            raise ValueError("Renseigne --ae-run-id (ou AE_RUN_ID dans le bloc CONFIG).")
+            raise ValueError("Set --ae-run-id (or AE_RUN_ID in the CONFIG block).")
         download(
             "Autoencoder",
             f"{args.entity}/{args.ae_project}/{args.ae_run_id}",
@@ -97,7 +105,7 @@ def main():
 
     if args.only in ("flow", "both"):
         if not args.flow_run_id:
-            raise ValueError("Renseigne --flow-run-id (ou FLOW_RUN_ID dans le bloc CONFIG).")
+            raise ValueError("Set --flow-run-id (or FLOW_RUN_ID in the CONFIG block).")
         download(
             "Flow",
             f"{args.entity}/{args.flow_project}/{args.flow_run_id}",
@@ -105,7 +113,7 @@ def main():
             args.cache_dir,
         )
 
-    print(f"\nTerminé. Cache : {args.cache_dir.resolve()}")
+    print(f"\nDone. Cache: {args.cache_dir.resolve()}")
 
 
 if __name__ == "__main__":
