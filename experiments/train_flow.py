@@ -29,15 +29,20 @@ CONFIG = {
     "ae_run_dir": "Student-1_i1pf186a",
     "ae_epoch": 2000,
     # flow (unconditional)
-    "flow_type": "RealNVP",
+    # MAF + rational-quadratic splines: the autoencoder's softclip2 saturation
+    # bounds every latent to the open interval (-5, 5) and can pile mass near the
+    # edges, so the flow needs a bounded, non-affine transformer. `interval` is
+    # set to the saturation bound; outside it the spline is linear, where there
+    # is essentially no data anyway.
+    "flow_type": "MAF",
     "flow_layers": 4,
     "latent_dim": [1, 4, 4],
     "cond_dim": None,
-    "bijector": "affine",
+    "bijector": "RQS",
     "nn_width": 128,
     "nn_depth": 2,
-    "knots": 28,
-    "interval": 5.5,
+    "knots": 12,
+    "interval": 5.0,
     # optimization
     "peak_learning_rate": 1e-4,
     "end_learning_rate": 1e-6,
