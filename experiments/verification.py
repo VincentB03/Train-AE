@@ -37,6 +37,18 @@ N_EVAL = 2000                              # number of samples for the test
 AE_MODEL_PATH = fetch_wandb_checkpoint(AE_RUN_PATH, AE_EPOCH, cache_dir=ROOT / "wandb_weights")
 FLOW_MODEL_PATH = fetch_wandb_checkpoint(FLOW_RUN_PATH, FLOW_EPOCH, cache_dir=ROOT / "wandb_weights")
 
+def chi2_dof_report(chi2_vals, dof):
+    """Robust "chi2/DoF" summary for the console. ``pqm_chi2`` returns
+    ``chi2.isf(p_value, dof)``, which is ``+inf`` whenever a re-tessellation's
+    contingency p-value underflows to exactly 0 (samples maximally separated),
+    so a plain mean is useless once any such entry is present."""
+    v = np.asarray(chi2_vals, dtype=float)
+    finite = v[np.isfinite(v)]
+    n_bad = v.size - finite.size
+    med = np.median(finite) / dof if finite.size else float("nan")
+    return f"{med:.3f}  (median/DoF over {finite.size} finite; {n_bad} non-finite)"
+
+
 def plot_pqm_diagnostics(slug, title, pipeline, chi2_vals, pvals, dof):
     """Reproduces the diagnostic plots from the PQMass repo notebooks:
     chi2 histogram vs chi2(dof) pdf, and p-value histogram vs uniform pdf.
@@ -44,25 +56,43 @@ def plot_pqm_diagnostics(slug, title, pipeline, chi2_vals, pvals, dof):
     ``slug`` is the descriptive file stem (-> ``PQM_results/<slug>_{chi2,pvalue}.png``),
     ``title`` the human-readable caption drawn on both figures, and ``pipeline`` the
     sub-caption spelling out which part of the pipeline produces each PQMass sample
-    (x = generated, y = reference), e.g. "x: flow.sample -> AE.decode -> AE.convolve(PSF)"."""
-    for values, ref_pdf, xlabel, kind in (
-        (chi2_vals, lambda g: chi2.pdf(g, df=dof), r"$\chi^2_{\rm PQM}$", "chi2"),
-        (pvals, lambda g: uniform.pdf(g), "p-value", "pvalue"),
-    ):
-        fig, ax = plt.subplots(figsize=(6, 3.8))
-        if kind == "chi2":
-            ax.hist(values, bins=20, density=True)
-            grid = np.linspace(min(values), max(values), 200)
-        else:
-            ax.hist(values, bins=10, density=True, range=(0, 1))
-            grid = np.linspace(0, 1, 100)
-        ax.plot(grid, ref_pdf(grid), color="red")
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Frequency")
-        ax.set_title(f"{title}\n{pipeline}", fontsize=9)
-        fig.tight_layout()
-        fig.savefig(RESULTS_DIR / f"{slug}_{kind}.png", dpi=150)
-        plt.close(fig)
+    (x = generated, y = reference), e.g. "x: flow.sample -> AE.decode -> AE.convolve(PSF)".
+
+    Non-finite chi2 entries (p-value underflow to 0, i.e. maximal separation) are
+    dropped from the chi2 histogram and their count is reported in the title,
+    matching how the PQMass notebooks handle them."""
+    chi2_vals = np.asarray(chi2_vals, dtype=float)
+    finite = chi2_vals[np.isfinite(chi2_vals)]
+    n_nonfinite = chi2_vals.size - finite.size
+    tag = f"  [{n_nonfinite}/{chi2_vals.size} non-finite chi2 dropped]" if n_nonfinite else ""
+
+    fig, ax = plt.subplots(figsize=(6, 3.8))
+    if finite.size:
+        ax.hist(finite, bins=20, density=True)
+        grid = np.linspace(finite.min(), finite.max(), 200)
+        ax.plot(grid, chi2.pdf(grid, df=dof), color="red")
+    else:
+        ax.text(0.5, 0.5, "all chi2 values non-finite", ha="center", va="center",
+                transform=ax.transAxes)
+    ax.set_xlabel(r"$\chi^2_{\rm PQM}$")
+    ax.set_ylabel("Frequency")
+    ax.set_title(f"{title}\n{pipeline}{tag}", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(RESULTS_DIR / f"{slug}_chi2.png", dpi=150)
+    plt.close(fig)
+
+    pvals = np.asarray(pvals, dtype=float)
+    pvals = pvals[np.isfinite(pvals)]
+    fig, ax = plt.subplots(figsize=(6, 3.8))
+    ax.hist(pvals, bins=10, density=True, range=(0, 1))
+    grid = np.linspace(0, 1, 100)
+    ax.plot(grid, uniform.pdf(grid), color="red")
+    ax.set_xlabel("p-value")
+    ax.set_ylabel("Frequency")
+    ax.set_title(f"{title}\n{pipeline}", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(RESULTS_DIR / f"{slug}_pvalue.png", dpi=150)
+    plt.close(fig)
 
 
 key = jax.random.key(0)
@@ -116,8 +146,8 @@ gen_imgs_np = np.asarray(gen_imgs).reshape(N_EVAL, -1)
 # --- Test 0: calibration (real vs real) ---
 pvals_calib_latent = pqm_pvalue(z_calib_a_np, z_calib_b_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
 chi2_calib_latent = pqm_chi2(z_calib_a_np, z_calib_b_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
-print("Calib latent -> p-value mean/std:", np.mean(pvals_calib_latent), np.std(pvals_calib_latent))
-print("Calib latent -> chi2/DoF mean:", np.mean(chi2_calib_latent) / 99)
+print("Calib latent -> p-value mean/std:", np.nanmean(pvals_calib_latent), np.nanstd(pvals_calib_latent))
+print("Calib latent -> chi2/DoF:", chi2_dof_report(chi2_calib_latent, 99))
 plot_pqm_diagnostics(
     "test0_calibration_real-vs-real_latent-space",
     "Test 0 - calibration (real vs real), flow latent space (16-D)",
@@ -127,8 +157,8 @@ plot_pqm_diagnostics(
 
 pvals_calib_img = pqm_pvalue(calib_imgs_a_np, calib_imgs_b_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
 chi2_calib_img = pqm_chi2(calib_imgs_a_np, calib_imgs_b_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
-print("Calib image  -> p-value mean/std:", np.mean(pvals_calib_img), np.std(pvals_calib_img))
-print("Calib image  -> chi2/DoF mean:", np.mean(chi2_calib_img) / 99)
+print("Calib image  -> p-value mean/std:", np.nanmean(pvals_calib_img), np.nanstd(pvals_calib_img))
+print("Calib image  -> chi2/DoF:", chi2_dof_report(chi2_calib_img, 99))
 plot_pqm_diagnostics(
     "test0_calibration_real-vs-real_image-space",
     "Test 0 - calibration (real vs real), image pixel space",
@@ -139,8 +169,8 @@ plot_pqm_diagnostics(
 # --- Test 1: latent space (what the flow models directly), generated vs real partition A ---
 pvals_latent = pqm_pvalue(z_gen_np, z_calib_a_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
 chi2_latent = pqm_chi2(z_gen_np, z_calib_a_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
-print("Latent  -> p-value mean/std:", np.mean(pvals_latent), np.std(pvals_latent))
-print("Latent  -> chi2/DoF mean:", np.mean(chi2_latent) / 99)
+print("Latent  -> p-value mean/std:", np.nanmean(pvals_latent), np.nanstd(pvals_latent))
+print("Latent  -> chi2/DoF:", chi2_dof_report(chi2_latent, 99))
 plot_pqm_diagnostics(
     "test1_flow-samples-vs-real_latent-space",
     "Test 1 - flow samples vs real (partition A), flow latent space (16-D)",
@@ -151,8 +181,8 @@ plot_pqm_diagnostics(
 # --- Test 2: image space (full pipeline), generated vs real partition A ---
 pvals_img = pqm_pvalue(gen_imgs_np, calib_imgs_a_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
 chi2_img = pqm_chi2(gen_imgs_np, calib_imgs_a_np, num_refs=100, re_tessellation=1000, z_score_norm=True)
-print("Image   -> p-value mean/std:", np.mean(pvals_img), np.std(pvals_img))
-print("Image   -> chi2/DoF mean:", np.mean(chi2_img) / 99)
+print("Image   -> p-value mean/std:", np.nanmean(pvals_img), np.nanstd(pvals_img))
+print("Image   -> chi2/DoF:", chi2_dof_report(chi2_img, 99))
 plot_pqm_diagnostics(
     "test2_full-pipeline-gen-vs-real_image-space",
     "Test 2 - full pipeline (flow + decode + PSF convolve) vs real (partition A), image pixel space",
