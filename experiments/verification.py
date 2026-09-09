@@ -43,10 +43,10 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- adapt to your run ---
 WANDB_ENTITY = "vincentb03-imt-atlantique"
-AE_RUN_PATH = f"{WANDB_ENTITY}/Test-AE-partial-3/i1pf186a"
+AE_RUN_PATH = f"{WANDB_ENTITY}/AE-partial-droppedDB/i344nq38"
 AE_EPOCH = 2000
-FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow/95f2vnu6"
-FLOW_EPOCH = 50
+FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow-dropped-db/9i28jqsm"
+FLOW_EPOCH = 500
 DATASET_NAME = "VincentB03/euclid-Q1-VF"
 
 N_EVAL = 2000        # samples per side of one PQMass comparison

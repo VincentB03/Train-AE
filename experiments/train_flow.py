@@ -26,7 +26,7 @@ CONFIG = {
     # frozen autoencoder to encode galaxies into latent codes: must point to a
     # checkpoint produced by train_test_partial.py, i.e.
     # PATH / "runs" / ae_run_dir / f"model_checkpoint_{ae_epoch}.eqx" (+ config.yaml)
-    "ae_run_dir": "Student-1_i1pf186a",
+    "ae_run_dir": "Student-1_i344nq38",
     "ae_epoch": 2000,
     # flow (unconditional)
     # MAF + rational-quadratic splines: the autoencoder's softclip2 saturation
@@ -44,8 +44,8 @@ CONFIG = {
     "knots": 12,
     "interval": 5.0,
     # optimization
-    "peak_learning_rate": 1e-4,
-    "end_learning_rate": 1e-6,
+    "peak_learning_rate": 3e-5,
+    "end_learning_rate": 5e-7,
     "batch_size": 256,
     "epochs": 500,
     "log_freq": 10,
