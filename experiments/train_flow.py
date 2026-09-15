@@ -197,6 +197,9 @@ def train(runid: str = None):
 
         loss_val = np.stack(losses).mean() if losses else 0.0
 
+        # LR used at the last optimizer step of this epoch
+        learning_rate = float(lr_schedule((epoch + 1) * steps_per_epoch - 1))
+
         if (epoch + 1) % cfg.log_freq == 0:
             key, subkey = jax.random.split(key)
             y = sample_images(params, batch, subkey)
@@ -210,6 +213,7 @@ def train(runid: str = None):
                 {
                     "loss_train": loss_train,
                     "loss_val": loss_val,
+                    "learning_rate": learning_rate,
                     "flow_samples": wandb.Image(x),
                 }
             )
@@ -223,6 +227,7 @@ def train(runid: str = None):
                 {
                     "loss_train": loss_train,
                     "loss_val": loss_val,
+                    "learning_rate": learning_rate,
                 }
             )
 

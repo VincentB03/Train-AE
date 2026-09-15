@@ -224,6 +224,9 @@ def train(runid: str):
 
         loss_test = np.stack(losses).mean() if losses else 0.0
 
+        # LR used at the last optimizer step of this epoch
+        learning_rate = float(lr_schedule((epoch + 1) * steps_per_epoch - 1))
+
         if (epoch + 1) % cfg.log_freq == 0:
             model = eqx.combine(params, static)
             model = eqx.nn.inference_mode(model, True)
@@ -235,6 +238,7 @@ def train(runid: str):
             run.log({
                 "loss_train": loss_train,
                 "loss_test": loss_test,
+                "learning_rate": learning_rate,
                 "fit_and_residuals": wandb.Image(x),
             })
 
@@ -242,7 +246,7 @@ def train(runid: str):
 
             wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))
         else:
-            run.log({"loss_train": loss_train, "loss_test": loss_test})
+            run.log({"loss_train": loss_train, "loss_test": loss_test, "learning_rate": learning_rate})
     artifact = wandb.Artifact(
         name=f"galaxy-ae-{run.id}", 
         type="model",

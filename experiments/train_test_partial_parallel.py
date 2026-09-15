@@ -287,6 +287,9 @@ def train(runid: str):
 
         loss_test = np.stack(losses).mean() if losses else 0.0
 
+        # LR used at the last optimizer step of this epoch
+        learning_rate = float(lr_schedule((epoch + 1) * steps_per_epoch - 1))
+
         if (epoch + 1) % cfg.log_freq == 0:
             single_params = unreplicate(params)
             model = eqx.combine(single_params, static)
@@ -300,13 +303,14 @@ def train(runid: str):
             run.log({
                 "loss_train": loss_train,
                 "loss_test": loss_test,
+                "learning_rate": learning_rate,
                 "fit_and_residuals": wandb.Image(x),
             })
 
             dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
             wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))
         else:
-            run.log({"loss_train": loss_train, "loss_test": loss_test})
+            run.log({"loss_train": loss_train, "loss_test": loss_test, "learning_rate": learning_rate})
 
     model_final = eqx.combine(unreplicate(params), static)
 
