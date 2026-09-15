@@ -12,7 +12,7 @@ from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
 from datasets import load_dataset
-# no data augmentation 
+# data augmentation: random horizontal/vertical flips (train only)
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
@@ -50,6 +50,29 @@ def ema_update(params, ema_params, decay):
     return jax.tree_util.tree_map(
         lambda p, e: decay * e + (1.0 - decay) * p, params, ema_params
     )
+
+
+# Fields that live on the same pixel grid and must receive the same flip.
+AUGMENT_KEYS = ("sci_subtracted", "psf_stamp", "noise_map", "binary_mask")
+
+
+def random_flip(x, key, axis):
+    do_flip = jax.random.bernoulli(key)
+    return jnp.where(do_flip, jnp.flip(x, axis=axis), x)
+
+
+def augment_single(example, key):
+    # example[k] has shape (H, W); the same key is used for every field so
+    # image, PSF, noise map and mask stay consistent with each other
+    keys = jax.random.split(key, 2)
+    out = dict(example)
+    for k in AUGMENT_KEYS:
+        out[k] = random_flip(out[k], keys[0], -1)
+        out[k] = random_flip(out[k], keys[1], -2)
+    return out
+
+
+augment_batch = jax.vmap(augment_single)
 class HFDataset(Dataset):
     def __init__(self, hf_dataset):
         self.dataset = hf_dataset
@@ -196,6 +219,9 @@ def train(runid: str):
 
     @jax.jit
     def opt_step(params, ema_params, opt_state, batch, key, activate=0.0):
+        key, aug_key = jax.random.split(key)
+        batch_keys = jax.random.split(aug_key, batch["sci_subtracted"].shape[0])
+        batch = augment_batch(batch, batch_keys)
         loss_value, grads = jax.value_and_grad(loss)(params, batch, key, activate)
         updates, opt_state = optimizer.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
