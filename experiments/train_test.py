@@ -19,7 +19,7 @@ import wandb
 
 CONFIG = {
     "use_jax_galsim": True,
-    "minimum_fft_size": 64, 
+    "minimum_fft_size": 128, 
     "nx": 64,
     "ny": 64,
     "scale": 0.03,

@@ -15,8 +15,8 @@ from typing import Sequence, Union, Optional, Dict
 from functools import partial
 
 
-def convolve_galsim(x, psf, nx, ny, scale):
-    gsparams = jgalsim.GSParams(minimum_fft_size=nx, maximum_fft_size=nx)
+def convolve_galsim(x, psf, nx, ny, scale, fft_size):
+    gsparams = jgalsim.GSParams(minimum_fft_size=fft_size, maximum_fft_size=fft_size)
     x = InterpolatedImage(Image(x[0], scale=scale))
     psf = InterpolatedImage(Image(psf[0], scale=scale))
     convolved = Convolve(x, psf).withGSParams(gsparams)
@@ -47,7 +47,7 @@ class GalaxyAutoEncoder(AutoEncoder):
         return y
 
     def convolve(self, x, psf):
-        return convolve_galsim(x, psf, self.nx, self.ny, self.scale)
+        return convolve_galsim(x, psf, self.nx, self.ny, self.scale, self.minimum_fft_size)
 
     @eqx.filter_jit
     def __call__(self, x, psf, key=None):

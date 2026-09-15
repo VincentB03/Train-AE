@@ -29,7 +29,7 @@ import wandb
 # schedule, same weight decay), just faster.
 CONFIG = {
     "use_jax_galsim": True,
-    "minimum_fft_size": 64,
+    "minimum_fft_size": 128,
     "nx": 64,
     "ny": 64,
     "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
