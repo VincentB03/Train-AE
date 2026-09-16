@@ -57,6 +57,26 @@ CONFIG = {
     "nx": 64,
     "ny": 64,
     "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
+    # The encoder sees asinh(sci_subtracted / asinh_scale) instead of the raw
+    # flux (see GalaxyAutoEncoder.encode). Only the encoder input changes: the
+    # loss still compares the raw image to the PSF-convolved decoder output,
+    # weighted by the raw noise_map. None: raw flux input.
+    # asinh(x/s) is linear for |x| << s and logarithmic for |x| >> s, so s is
+    # the typical pixel noise sigma: noise stays in the linear regime, only the
+    # bright parts are compressed. s is one fixed value (not a per-stamp or
+    # per-pixel rms): the decoder must return absolute fluxes without seeing s,
+    # and a per-pixel scale would distort the image seen by the encoder.
+    # How it was measured:
+    #   rms = dset_train[:5000]["noise_map"]           # (N, 64, 64), shuffled split
+    #   s = np.median(np.median(rms, axis=(1, 2)))     # median of per-stamp medians
+    # cross-check with the data itself (stamps are mostly background):
+    #   x = dset_train[:5000]["sci_subtracted"]
+    #   sigma = 1.4826 * np.median(np.abs(x - np.median(x, axis=(1, 2), keepdims=True)), axis=(1, 2))
+    #   np.median(sigma)
+    # euclid-Q1-VF, first parquet shard (8368 stamps): per-stamp noise medians
+    # 2.72-3.36 (1st-99th percentile), s = 2.81, MAD cross-check 2.89. Encoder
+    # input goes from [-8, 4e4] (raw) to [-1.8, 10.2] (99.9th percentile 4.8).
+    "asinh_scale": 2.8,
     "in_channels": 1,
     "latent_channels": 1,
     "hid_channels": (32, 32, 64, 128, 256),
@@ -258,7 +278,7 @@ def train(runid: str):
         latent_channels=cfg.latent_channels, hid_channels=cfg.hid_channels,
         hid_blocks=cfg.hid_blocks, attention_heads=cfg.attention_heads,
         patch_size=cfg.patch_size, stride=cfg.stride, dropout=cfg.dropout,
-        kernel_size=cfg.kernel_size, key=key,
+        kernel_size=cfg.kernel_size, asinh_scale=cfg.asinh_scale, key=key,
     )
 
     params, static = eqx.partition(model, eqx.is_array)

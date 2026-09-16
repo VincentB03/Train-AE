@@ -30,16 +30,29 @@ class GalaxyAutoEncoder(AutoEncoder):
     nx: int = eqx.field(static=True, default=128)
     ny: int = eqx.field(static=True, default=128)
     scale: float = eqx.field(static=True, default=0.03)
+    asinh_scale: Optional[float] = eqx.field(static=True, default=None)
 
-    def __init__(self, encoder, decoder, use_jax_galsim, minimum_fft_size, nx, ny, scale, saturation="softclip2", **kwargs):
-        
+    def __init__(self, encoder, decoder, use_jax_galsim, minimum_fft_size, nx, ny, scale, saturation="softclip2", asinh_scale=None, **kwargs):
+
         super().__init__(encoder=encoder, decoder=decoder, saturation=saturation, **kwargs)
-        
+
         self.use_jax_galsim = use_jax_galsim
         self.minimum_fft_size = minimum_fft_size
         self.nx = nx
         self.ny = ny
         self.scale = scale
+        self.asinh_scale = asinh_scale
+
+    def encode(self, x, key=None):
+        # asinh stretch of the ENCODER INPUT only: the decoder output, the PSF
+        # convolution and the loss (raw image, raw noise_map) stay in flux
+        # space. Done here rather than in the training scripts so that every
+        # caller (__call__, the loss, predict, train_flow, verification and
+        # reloaded checkpoints) sees the same input. None: raw flux input, as
+        # in the runs made before this option.
+        if self.asinh_scale is not None:
+            x = jnp.arcsinh(x / self.asinh_scale)
+        return super().encode(x, key)
 
     def decode(self, x, key=None):
         y = self.decoder(x, key)
@@ -139,6 +152,7 @@ def make_galaxy_autoencoder(
     kernel_size=3, hid_channels=(), hid_blocks=(),
     attention_heads={}, patch_size=1, stride=2,
     dropout=None, key=None, saturation="softclip2",
+    asinh_scale=None,
     **absorb,
 ):
     if isinstance(kernel_size, int):
@@ -170,4 +184,5 @@ def make_galaxy_autoencoder(
         encoder=encoder, decoder=decoder, saturation=saturation,
         nx=nx, ny=ny, scale=scale,
         use_jax_galsim=use_jax_galsim, minimum_fft_size=minimum_fft_size,
+        asinh_scale=asinh_scale,
     )
