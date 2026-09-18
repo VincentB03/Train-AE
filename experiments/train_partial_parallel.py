@@ -159,11 +159,20 @@ COLUMNS = {
 }
 
 
-def as_batch(column):
+# Dtype each field is narrowed to inside the worker, before the batch travels
+# through shared memory to the main process. binary_mask is stored as int64,
+# 8 bytes per pixel for a 0/1 flag, and is half of a batch's bytes on its own;
+# as bool it is 8x smaller. JAX widens it back on device (nll * mask promotes
+# to float32, mask.sum() counts the same).
+BATCH_DTYPES = {"binary_mask": np.bool_}
+
+
+def as_batch(column, dtype=None):
     # with_format("numpy") gives one (B, H, W) array when all rows share a
     # shape, otherwise an object array of (H, W) arrays
     column = np.asarray(column)
-    return np.stack(column) if column.dtype == object else column
+    batch = np.stack(column) if column.dtype == object else column
+    return batch if dtype is None else batch.astype(dtype, copy=False)
 
 
 class HFDataset(Dataset):
@@ -178,7 +187,10 @@ class HFDataset(Dataset):
 
     def __getitem__(self, indices):
         items = self.dataset[indices]
-        return {field: as_batch(items[column]) for column, field in COLUMNS.items()}
+        return {
+            field: as_batch(items[column], BATCH_DTYPES.get(field))
+            for column, field in COLUMNS.items()
+        }
 
 
 def identity(batch):
