@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import inspect
 import time
 import types
 import jax
@@ -23,6 +24,20 @@ try:
     from jax import shard_map  # public API in recent JAX
 except ImportError:
     from jax.experimental.shard_map import shard_map  # older JAX
+
+# Keyword that turns shard_map's replication check off: it was named check_rep
+# in jax.experimental and renamed check_vma when shard_map became public, so
+# pick whichever the installed JAX accepts (see the comment on sharded_grads).
+try:
+    _shard_map_params = inspect.signature(shard_map).parameters
+except (TypeError, ValueError):  # pragma: no cover - unusual wrapping
+    _shard_map_params = {}
+if "check_vma" in _shard_map_params:
+    NO_REP_CHECK = {"check_vma": False}
+elif "check_rep" in _shard_map_params:
+    NO_REP_CHECK = {"check_rep": False}
+else:
+    NO_REP_CHECK = {}
 
 # Data-parallel version of train_test_partial.py for ONE node with several GPUs
 # (Jean Zay V100 quad-GPU node: 4 GPUs).
@@ -370,26 +385,26 @@ def train(runid: str):
         y, _, _ = jax.vmap(model)(img, psf)
         return y
 
-    # check_rep=False: with the default check_rep=True, JAX >= 0.11 tags the
+    # NO_REP_CHECK: with the check left on (the default), JAX >= 0.11 tags the
     # arrays inside shard_map with "varying manual axes" ({V:data}). jax-galsim
     # calls equinox.error_if, a lax.cond whose two branches then have mismatched
-    # types (one varying, one not), which raises at trace time. Disabling the
-    # check removes the tagging; pmean still replicates its outputs, but JAX no
-    # longer verifies that out_specs=P() really is replicated.
+    # types (one varying, one not), which raises at trace time. Turning the
+    # check off removes the tagging; pmean still replicates its outputs, but JAX
+    # no longer verifies that out_specs=P() really is replicated.
     sharded_grads = shard_map(
         local_grads, mesh=mesh,
         in_specs=(P(), P("data"), P("data"), P("data"), P()),
-        out_specs=(P(), P()), check_rep=False,
+        out_specs=(P(), P()), **NO_REP_CHECK,
     )
     sharded_test_loss = shard_map(
         local_test_loss, mesh=mesh,
         in_specs=(P(), P("data"), P("data"), P()),
-        out_specs=P(), check_rep=False,
+        out_specs=P(), **NO_REP_CHECK,
     )
     sharded_predict = shard_map(
         local_predict, mesh=mesh,
         in_specs=(P(), P("data"), P("data")),
-        out_specs=P("data"), check_rep=False,
+        out_specs=P("data"), **NO_REP_CHECK,
     )
 
     # --- global steps: jit with explicit input/output shardings ----------------
