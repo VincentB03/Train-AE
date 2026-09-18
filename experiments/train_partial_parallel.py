@@ -500,6 +500,13 @@ def train(runid: str):
             "data_wait_frac": data_wait / train_time,
         }
 
+        if is_main:
+            print(
+                f"  epoch {epoch + 1}: "
+                + "  ".join(f"{k}={v:.5g}" for k, v in metrics.items()),
+                flush=True,
+            )
+
         if (epoch + 1) % cfg.log_freq == 0:
             # computed on every process (it is a collective when there are
             # several), logged/saved by process 0 only
