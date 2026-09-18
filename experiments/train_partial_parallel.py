@@ -370,20 +370,26 @@ def train(runid: str):
         y, _, _ = jax.vmap(model)(img, psf)
         return y
 
+    # check_rep=False: with the default check_rep=True, JAX >= 0.11 tags the
+    # arrays inside shard_map with "varying manual axes" ({V:data}). jax-galsim
+    # calls equinox.error_if, a lax.cond whose two branches then have mismatched
+    # types (one varying, one not), which raises at trace time. Disabling the
+    # check removes the tagging; pmean still replicates its outputs, but JAX no
+    # longer verifies that out_specs=P() really is replicated.
     sharded_grads = shard_map(
         local_grads, mesh=mesh,
         in_specs=(P(), P("data"), P("data"), P("data"), P()),
-        out_specs=(P(), P()),
+        out_specs=(P(), P()), check_rep=False,
     )
     sharded_test_loss = shard_map(
         local_test_loss, mesh=mesh,
         in_specs=(P(), P("data"), P("data"), P()),
-        out_specs=P(),
+        out_specs=P(), check_rep=False,
     )
     sharded_predict = shard_map(
         local_predict, mesh=mesh,
         in_specs=(P(), P("data"), P("data")),
-        out_specs=P("data"),
+        out_specs=P("data"), check_rep=False,
     )
 
     # --- global steps: jit with explicit input/output shardings ----------------
