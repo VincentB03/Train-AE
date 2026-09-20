@@ -509,10 +509,17 @@ def train(runid: str):
 
         if (epoch + 1) % cfg.log_freq == 0:
             # computed on every process (it is a collective when there are
-            # several), logged/saved by process 0 only
+            # several), logged/saved by process 0 only.
+            #
+            # ema_params, not params: loss_test is measured on the EMA model
+            # (see local_test_loss), so the residual plot and the checkpoint
+            # have to show that same model. Saving the raw params instead meant
+            # the logged loss_test described one model while train_flow.py and
+            # verification.py reloaded another -- and it was one of the reasons
+            # loss_test came out *below* loss_train.
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
-            y = predict(params, shard_batch(img, data_sharding), shard_batch(psf, data_sharding))
+            y = predict(ema_params, shard_batch(img, data_sharding), shard_batch(psf, data_sharding))
 
             if is_main:
                 x = plot_ae_residuals({"sci_subtracted": img}, np.asarray(y))
@@ -520,7 +527,7 @@ def train(runid: str):
                 run.log(metrics)
 
                 # replicated arrays are read back from one GPU when serialised
-                model = eqx.nn.inference_mode(eqx.combine(params, static), True)
+                model = eqx.nn.inference_mode(eqx.combine(ema_params, static), True)
                 dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
                 wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))
         elif is_main:
