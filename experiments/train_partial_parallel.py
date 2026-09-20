@@ -252,12 +252,15 @@ def make_loader(hf_dataset, batch_size, shuffle=False, seed=0):
         batch_size=None,
         collate_fn=identity,
         # one worker per CPU of the task, capped: the main process also needs
-        # CPU to dispatch the GPU work. Cap raised from 16 to 32 because the job
-        # asks for the whole node (40 cores) and data_wait_frac was still 0.26,
-        # i.e. the GPUs idled a quarter of every epoch. Changing it cannot alter
-        # the result: the sampler lives in the main process, so batch
-        # composition and order are identical whatever the worker count.
-        num_workers=min(int(os.environ.get("SLURM_CPUS_PER_TASK", 4)), 32),
+        # CPU to dispatch the GPU work.
+        #
+        # 32 was tried and reverted: with the whole node (40 cores) it made
+        # things slightly worse, 4502 samples/s against 4740 and data_wait_frac
+        # 0.28 against 0.26. The limit is not the workers but the main process,
+        # which assembles each batch and pushes it to the devices with
+        # make_array_from_process_local_data single-threaded; extra workers only
+        # add contention and shared-memory traffic.
+        num_workers=min(int(os.environ.get("SLURM_CPUS_PER_TASK", 4)), 16),
         prefetch_factor=2,
         pin_memory=False,
         persistent_workers=True,
