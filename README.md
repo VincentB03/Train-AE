@@ -24,14 +24,14 @@ pshear/                 Core library
 experiments/            Training and evaluation scripts
   train_test.py            Autoencoder training with the full PSF
   train_test_partial.py    Autoencoder training with a partial PSF
-  train_test_parallel.py   Multi-device (pmap) variant of train_test.py
-  train_test_partial_parallel.py  Multi-device (pmap) variant of train_test_partial.py
+  train_partial_parallel.py  Multi-GPU (data-parallel) version of train_test_partial.py
   train_flow.py            Fits the normalizing flow on the frozen autoencoder's latent space
   verification.py          PQMass-based check that generated samples match the real data distribution
   utils.py                 Shared paths and plotting helpers
 
 test/
   test_requirements.py     Sanity check of the training environment (JAX/GPU, Hugging Face, Weights & Biases)
+  test_multi_gpu.py        Checks that JAX sees the node's GPUs and that they can all-reduce (NCCL)
 ```
 
 ## Full vs. partial PSF training
@@ -41,7 +41,9 @@ test/
 - **`train_test.py`** uses the **full** PSF. Because deconvolving with the full PSF is an ill-posed problem, the loss includes a total-variation regularization term to suppress the pixelization artifacts this introduces in the deconvolved output.
 - **`train_test_partial.py`** uses a **partial** PSF, also provided in the dataset. This avoids the need for a non-physical regularization term altogether.
 
-The `_parallel` variants (`train_test_parallel.py`, `train_test_partial_parallel.py`) are a multi-device (pmap) starting point for future work and were not used to produce the results of these experiments.
+## Multi-GPU training
+
+[experiments/train_partial_parallel.py](experiments/train_partial_parallel.py) is a working data-parallel version of `train_test_partial.py`: it trains on every GPU of a node (single process, `Mesh` + `NamedSharding` + `shard_map`, no `pmap`). Model, EMA and optimizer state are replicated, `batch_size` is the **global** batch split across GPUs, and gradients are averaged with `pmean`. Submit the job with **one task** for the whole node (e.g. `--gres=gpu:4 --ntasks=1`); run [test/test_multi_gpu.py](test/test_multi_gpu.py) first to confirm JAX sees and can all-reduce across the GPUs.
 
 ## Environment
 
