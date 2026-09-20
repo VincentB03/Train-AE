@@ -60,9 +60,10 @@ else:
 #     pmean. Shards are equal-sized, so the mean of the per-GPU means is the
 #     global batch mean.
 #   - 128 examples per GPU: the global batch (512 with 4 GPUs) is 4x the one of
-#     train_test_partial.py, i.e. 4x fewer optimizer steps per epoch. Starting
-#     point, to tune empirically: learning rates x sqrt(4) = x2, Adam betas
-#     kept, EMA decay 0.999**4 (same averaging horizon in epochs).
+#     train_test_partial.py, i.e. 4x fewer optimizer steps per epoch. Adam betas
+#     kept, EMA decay 0.999**4 (same averaging horizon in epochs); the learning
+#     rates are no longer the sqrt-scaling guess but come from a measurement,
+#     see the CONFIG entries below.
 #   - per-example RNG keys (flips, dropout) are drawn for the global batch and
 #     then sharded, exactly like in train_test_partial.py, so two GPUs never
 #     reuse the same random draws.
@@ -102,21 +103,41 @@ CONFIG = {
     "dropout": 0.05,
     "kernel_size": 3,
     "batch_size": 512,     # GLOBAL batch = 128 per GPU x 4 GPUs, must be divisible by num_devices
-    "epochs": 2000,
-    # 128-batch learning rates x sqrt(512 / 128) = x2 (square-root scaling rule
-    # for Adam, Adam betas kept): starting point, to tune empirically
-    "init_learning_rate": 2e-6,
-    "peak_learning_rate": 2e-5,
-    "end_learning_rate": 2e-7,
-    "warmup_epochs": 100,
-    "lr_decay_epochs": 300,  # LR reaches end_learning_rate here, then holds flat
+    "epochs": 1000,
+    # Learning rates measured with experiments/lr_range_test.py, not derived
+    # from the square-root scaling rule that produced the previous 2e-5 peak.
+    # Two probes, each a run that is nothing but a linear warmup over 60 epochs,
+    # both sweeping through 4.8e-4:
+    #   - ramping to 5e-4, that LR arrives at step 5241: stable, and the logged
+    #     residuals were still improving at the end of the run;
+    #   - ramping to 5e-3, it arrives at step 523: slight rise, then NaN.
+    # The ceiling is therefore not an absolute LR but an LR relative to how
+    # trained the model already is -- which is exactly what warmup is for. Peak
+    # = LR_max / 3, and warmup_epochs stays long enough (20 epochs ~ 1800 steps)
+    # to cover the fragile early phase the second probe exposed.
+    #
+    # On this model NaN is the divergence signal, not a rising loss: the
+    # student-t gradient (nu+1)*e / (nu*sigma^2 + e^2) is bounded by 0.48 and
+    # *decreases* for large errors, so the loss cannot blow up smoothly and the
+    # failure surfaces further down, in the jax-galsim convolution.
+    "init_learning_rate": 1.5e-6,
+    "peak_learning_rate": 1.5e-4,
+    "end_learning_rate": 1.5e-6,
+    "warmup_epochs": 20,
+    # = epochs, so the cosine spans the whole run. It used to end at epoch 300
+    # of 2000: 85% of the run then ran at 1% of the peak LR and loss_train went
+    # flat around epoch 250 -- that plateau was the schedule dying, not
+    # convergence. 91k steps now do useful work, against 27.3k before.
+    "lr_decay_epochs": 1000,
     "weight_decay": 1e-4,
     # 0.999 at batch 128; beta**4 keeps the same averaging horizon in epochs
     # with 4x fewer steps per epoch
     "ema_decay": 0.999 ** 4,
     "losses": ["student_t_masked"],
     "weights": [1.0],
-    "log_freq": 10,
+    # at 10, a 2000-epoch run wrote 200 checkpoints of 35 MB and had wandb.save
+    # re-sync the whole growing directory every time
+    "log_freq": 50,
     "num_devices": 4,      # GPUs this process must see; None accepts any count
     # W&B destination. Kept in CONFIG so that a run with different
     # hyperparameters (a probe, an LR range test) can be redirected without
@@ -124,7 +145,7 @@ CONFIG = {
     # make_galaxy_autoencoder() absorbs the extra keys when a checkpoint's
     # config.yaml is reloaded, like the other non-architecture entries here.
     "wandb_project": "Test-AE-partial-3-parallel",
-    "wandb_name": "Student-2-parallel",
+    "wandb_name": "Student-3-lr1.5e-4",
 }
 
 
