@@ -94,7 +94,17 @@ CONFIG = {
     # input goes from [-8, 4e4] (raw) to [-1.8, 10.2] (99.9th percentile 4.8).
     "asinh_scale": 2.8,
     "in_channels": 1,
-    "latent_channels": 1,
+    # 1 -> 2: the latent goes from 1x4x4 = 16 numbers to 2x4x4 = 32 (compression
+    # 256:1 -> 128:1) while the parameter count stays at 8.86 M, so this widens
+    # the bottleneck without adding capacity anywhere else.
+    #
+    # Why: with 16 numbers the run reached loss_train = 0.5215 (dropout cost
+    # removed) against a noise floor of ~0.506, i.e. the model could not fit even
+    # its own training set down to the noise. A generalisation gap did open
+    # (loss_test 0.535, ~0.0135 above the corrected train loss), but a model that
+    # saturates 0.0155 short of the floor ON TRAIN is bottleneck-limited, not
+    # memorising -- so more latent, not more regularisation.
+    "latent_channels": 2,
     "hid_channels": (32, 32, 64, 128, 256),
     "hid_blocks": (2, 2, 2, 2, 2),
     "attention_heads": {4: 4},  # deepest encoder stage (4x4 feature map)
@@ -145,7 +155,7 @@ CONFIG = {
     # make_galaxy_autoencoder() absorbs the extra keys when a checkpoint's
     # config.yaml is reloaded, like the other non-architecture entries here.
     "wandb_project": "Test-AE-partial-3-parallel",
-    "wandb_name": "Student-3-lr1.5e-4",
+    "wandb_name": "Student-4-latent2",
 }
 
 
