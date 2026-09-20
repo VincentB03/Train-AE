@@ -118,6 +118,13 @@ CONFIG = {
     "weights": [1.0],
     "log_freq": 10,
     "num_devices": 4,      # GPUs this process must see; None accepts any count
+    # W&B destination. Kept in CONFIG so that a run with different
+    # hyperparameters (a probe, an LR range test) can be redirected without
+    # touching train(), and so that two runs never share a name in the UI.
+    # make_galaxy_autoencoder() absorbs the extra keys when a checkpoint's
+    # config.yaml is reloaded, like the other non-architecture entries here.
+    "wandb_project": "Test-AE-partial-3-parallel",
+    "wandb_name": "Student-2-parallel",
 }
 
 
@@ -271,8 +278,8 @@ def train(runid: str):
     # only one process anyway, the guard is kept as a safety net.
     if is_main:
         run = wandb.init(
-            project="Test-AE-partial-3-parallel",
-            name="Student-2-parallel",
+            project=cfg.wandb_project,
+            name=cfg.wandb_name,
             id=runid,
             resume="allow",
             dir=PATH,
