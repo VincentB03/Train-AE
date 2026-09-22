@@ -118,8 +118,10 @@ CONFIG = {
     #   - ramping to 5e-3, it arrives at step 523: slight rise, then NaN.
     # The ceiling is therefore not an absolute LR but an LR relative to how
     # trained the model already is -- which is exactly what warmup is for. Peak
-    # = LR_max / 3, and warmup_epochs stays long enough (20 epochs ~ 1800 steps)
-    # to cover the fragile early phase the second probe exposed.
+    # = LR_max / 3, and warmup_epochs stays long enough (20 epochs ~ 10000 steps
+    # on the 260k dataset, ~1800 on the 50k one) to cover the fragile early phase
+    # the second probe exposed -- either way ~2% of the run, since the warmup is
+    # expressed in epochs and the run length is too.
     #
     # On this model NaN is the divergence signal, not a rising loss: the
     # student-t gradient (nu+1)*e / (nu*sigma^2 + e^2) is bounded by 0.48 and
@@ -149,7 +151,7 @@ CONFIG = {
     # touching train(), and so that two runs never share a name in the UI.
     # make_galaxy_autoencoder() absorbs the extra keys when a checkpoint's
     # config.yaml is reloaded, like the other non-architecture entries here.
-    "wandb_project": "Test-AE-partial-3-parallel",
+    "wandb_project": "Test-AE-partial-4-parallel-260k",
     "wandb_name": "Student-5-latent1",
 }
 
@@ -322,9 +324,9 @@ def train(runid: str):
         exp_path.mkdir(parents=True, exist_ok=True)
 
         print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True)  # Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/euclid-Q1-postage-stamps", split="train", keep_in_memory=True)  # Try keeping in memory for faster training
 
-    dset = dset.train_test_split(test_size=0.1, seed=42)
+    dset = dset.train_test_split(test_size=5000, seed=42)
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
     dset_test = dset["test"]
