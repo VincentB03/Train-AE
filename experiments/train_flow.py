@@ -91,7 +91,7 @@ def preprocess_batch(batch_raw):
 
 def train(runid: str = None):
     run = wandb.init(
-        project="pshear-euclid-flow-dropped-db",
+        project="flow-dropped-db-parallel-runs",
         name="flow"+("-" + runid if runid else ""),
         id=runid,
         resume="allow",
