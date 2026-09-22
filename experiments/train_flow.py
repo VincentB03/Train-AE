@@ -25,7 +25,7 @@ import wandb
 CONFIG = {
     # frozen autoencoder to encode galaxies into latent codes
     # PATH / "runs" / ae_run_dir / f"model_checkpoint_{ae_epoch}.eqx" (+ config.yaml)
-    "ae_run_dir": "Student-4-latent2_ztaxh4xb",
+    "ae_run_dir": "Student-3-lr1.5e-4_atbfnh4h",
     "ae_epoch": 1000,
     # flow (unconditional)
     # MAF + rational-quadratic splines: the autoencoder's softclip2 saturation
@@ -35,7 +35,7 @@ CONFIG = {
     # is essentially no data anyway.
     "flow_type": "MAF",
     "flow_layers": 4,
-    "latent_dim": [2, 4, 4],
+    "latent_dim": [1, 4, 4],
     "cond_dim": None,
     "bijector": "RQS",
     "nn_width": 128,
