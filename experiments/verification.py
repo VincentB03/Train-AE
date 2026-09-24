@@ -47,7 +47,7 @@ AE_RUN_PATH = f"{WANDB_ENTITY}/AE-partial-droppedDB/i344nq38"
 AE_EPOCH = 2000
 FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow-dropped-db/9i28jqsm"
 FLOW_EPOCH = 500
-DATASET_NAME = "VincentB03/euclid-Q1-VF"
+DATASET_NAME = "VincentB03/euclid-Q1-postage-stamps"
 
 N_EVAL = 2000        # samples per side of one PQMass comparison
 N_SPLITS = 200       # (x, y) pairs per test; one p-value each
@@ -57,10 +57,11 @@ SPLIT_SEED = 20250909
 ENCODE_BATCH = 500   # batch size for the one-off encode/decode/convolve passes
 
 # Pool the two calibration tests draw their (A, B) partitions from:
-#   "test" -> the 10% test split (~5020 images), same pool as tests 1-2.
-#   "all"  -> the full 50203-image dataset: overlap between two splits drops to
-#             ~N_EVAL**2/50203 ~ 80/2000 (vs ~800/2000 for "test"), so splits are
-#             near-independent. Costs ~0.8 GB RAM for the flattened pixel pool.
+#   "test" -> the 5000-image test split, same pool as tests 1-2.
+#   "all"  -> the full ~260k-image dataset: overlap between two splits drops to
+#             ~N_EVAL**2/260k ~ 15/2000 (vs ~800/2000 for "test"), so splits are
+#             near-independent. Costs ~4.3 GB RAM for the flattened pixel pool,
+#             plus one ae.encode pass over the whole dataset.
 #             Caveat: the latent half runs through ae.encode, so train-split images
 #             then get encoded by an AE trained on them. Null still holds (both sides
 #             identically distributed), but it's no longer test 1's exact reference.
@@ -232,10 +233,10 @@ ae = eqx.nn.inference_mode(ae, value=True)
 flow = load_flow(FLOW_MODEL_PATH, epoch=FLOW_EPOCH)
 flow = eqx.nn.inference_mode(flow, value=True)
 
-# 2) real data, SAME test split as train_flow.py (seed=42): the flow must never be
-# compared against latents it was trained on.
+# 2) real data, SAME dataset and test split as train_flow.py (test_size=5000,
+# seed=42): the flow must never be compared against latents it was trained on.
 dset_full = load_dataset(DATASET_NAME, split="train", keep_in_memory=True)
-dset = dset_full.train_test_split(test_size=0.1, seed=42)
+dset = dset_full.train_test_split(test_size=5000, seed=42)
 dset_test = dset["test"].with_format("numpy")
 
 # 3) pools, materialised once so the per-split cost is a single tessellation.

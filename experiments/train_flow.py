@@ -25,7 +25,7 @@ import wandb
 CONFIG = {
     # frozen autoencoder to encode galaxies into latent codes
     # PATH / "runs" / ae_run_dir / f"model_checkpoint_{ae_epoch}.eqx" (+ config.yaml)
-    "ae_run_dir": "Student-3-lr1.5e-4_atbfnh4h",
+    "ae_run_dir": "Student-5-latent1_zevvjxej",
     "ae_epoch": 1000,
     # flow (unconditional)
     # MAF + rational-quadratic splines: the autoencoder's softclip2 saturation
@@ -91,7 +91,7 @@ def preprocess_batch(batch_raw):
 
 def train(runid: str = None):
     run = wandb.init(
-        project="flow-dropped-db-parallel-runs",
+        project="flow-dropped-db-parallel-runs-260k",
         name="flow"+("-" + runid if runid else ""),
         id=runid,
         resume="allow",
@@ -105,8 +105,8 @@ def train(runid: str = None):
     exp_path.mkdir(parents=True, exist_ok=True)
 
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True)
-    dset = dset.train_test_split(test_size=0.1, seed=42)
+    dset = load_dataset("VincentB03/euclid-Q1-postage-stamps", split="train", keep_in_memory=True)
+    dset = dset.train_test_split(test_size=5000, seed=42)
     dset = dset.with_format("numpy")
 
     train_loader = make_loader(dset["train"], cfg.batch_size, shuffle=True)
