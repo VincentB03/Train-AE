@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Autoencoder training with the partial PSF (single GPU), with random flips."""
 import os
 import jax
 import jax.numpy as jnp
@@ -12,7 +13,6 @@ from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
 from datasets import load_dataset
-# data augmentation: random horizontal/vertical flips (train only)
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
@@ -22,18 +22,18 @@ CONFIG = {
     "minimum_fft_size": 128,
     "nx": 64,
     "ny": 64,
-    "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
+    "scale": 0.1,  # arcsec/pixel (Euclid VIS)
     "in_channels": 1,
     "latent_channels": 1,
-    "hid_channels": (32, 32, 64, 128, 256), 
-    "hid_blocks": (2, 2, 2, 2, 2),          
+    "hid_channels": (32, 32, 64, 128, 256),
+    "hid_blocks": (2, 2, 2, 2, 2),
     "attention_heads": {4: 4},  # deepest encoder stage (4x4 feature map)
     "patch_size": 1,
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 128,    
-    "epochs": 2000,        
+    "batch_size": 128,
+    "epochs": 2000,
     "init_learning_rate": 1e-6,
     "peak_learning_rate": 1e-5,
     "end_learning_rate": 1e-7,
@@ -62,8 +62,7 @@ def random_flip(x, key, axis):
 
 
 def augment_single(example, key):
-    # example[k] has shape (H, W); the same key is used for every field so
-    # image, PSF, noise map and mask stay consistent with each other
+    # same flips for every field, so image, PSF, noise map and mask stay aligned
     keys = jax.random.split(key, 2)
     out = dict(example)
     for k in AUGMENT_KEYS:
@@ -84,7 +83,7 @@ class HFDataset(Dataset):
         item = self.dataset[idx]
         return {
             "sci_subtracted": item["sci_subtracted"],
-            "psf_stamp": item["psf_residual"],
+            "psf_stamp": item["psf_residual"],  # partial PSF
             "noise_map": item["noise_map"],
             "binary_mask": item["binary_mask"],
         }
@@ -115,10 +114,10 @@ def train(runid: str):
     exp_path = PATH / f"runs/{run.name}_{run.id}"
     exp_path.mkdir(parents=True, exist_ok=True)
     cfg = run.config
-    
+
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True) #Try keeping in memory for faster training
-    
+    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True)
+
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
@@ -165,10 +164,10 @@ def train(runid: str):
         batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
             batch["mask"],
             keys, activate
         ).mean()
@@ -180,15 +179,15 @@ def train(runid: str):
         batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
             batch["mask"],
-            keys, 
+            keys,
             activate
         ).mean()
-    
+
     steps_per_epoch = len(train_loader)
     warmup_steps = cfg.warmup_epochs * steps_per_epoch
     decay_steps = cfg.lr_decay_epochs * steps_per_epoch
@@ -231,7 +230,7 @@ def train(runid: str):
     activate = jnp.array(0.0)
     for epoch in range(cfg.epochs):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
-            
+
         losses = []
         for batch in train_loader:
             key, subkey = jax.random.split(key, 2)
@@ -274,7 +273,7 @@ def train(runid: str):
         else:
             run.log({"loss_train": loss_train, "loss_test": loss_test, "learning_rate": learning_rate})
     artifact = wandb.Artifact(
-        name=f"galaxy-ae-{run.id}", 
+        name=f"galaxy-ae-{run.id}",
         type="model",
         metadata=CONFIG
     )

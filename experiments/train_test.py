@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Autoencoder training with the full PSF (single GPU), with a total-variation term."""
 import os
 import jax
 import jax.numpy as jnp
@@ -12,28 +13,27 @@ from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
 from datasets import load_dataset
-# no data augmentation 
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
 
 CONFIG = {
     "use_jax_galsim": True,
-    "minimum_fft_size": 128, 
+    "minimum_fft_size": 128,
     "nx": 64,
     "ny": 64,
     "scale": 0.03,
     "in_channels": 1,
     "latent_channels": 1,
-    "hid_channels": (32, 32, 64, 128, 256), 
-    "hid_blocks": (2, 2, 2, 2, 2),          
-    "attention_heads": {5: 4},              
+    "hid_channels": (32, 32, 64, 128, 256),
+    "hid_blocks": (2, 2, 2, 2, 2),
+    "attention_heads": {5: 4},
     "patch_size": 1,
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 128,    
-    "epochs": 500,        
+    "batch_size": 128,
+    "epochs": 500,
     "learning_rate": 1e-5,
     "epoch_to_decay": 200,
     "lr_decay_factor": 0.5,
@@ -89,10 +89,10 @@ def train(runid: str):
     exp_path = PATH / f"runs/{run.name}_{run.id}"
     exp_path.mkdir(parents=True, exist_ok=True)
     cfg = run.config
-    
+
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True) #Try keeping in memory for faster training
-    
+    dset = load_dataset("VincentB03/euclid-Q1-VF", split="train", keep_in_memory=True)
+
     dset = dset.train_test_split(test_size=0.1, seed=42)
     dset = dset.with_format("numpy")
     dset_train = dset["train"]
@@ -139,10 +139,10 @@ def train(runid: str):
         batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
             batch["mask"],
             keys, activate
         ).mean()
@@ -154,22 +154,22 @@ def train(runid: str):
         batch_size = batch["sci_subtracted"].shape[0]
         keys = jax.random.split(key, batch_size)
         return loss_fn(
-            model, 
-            batch["sci_subtracted"], 
-            batch["psf_stamp"], 
-            batch["rms"], 
+            model,
+            batch["sci_subtracted"],
+            batch["psf_stamp"],
+            batch["rms"],
             batch["mask"],
-            keys, 
+            keys,
             activate
         ).mean()
-    
-    steps_per_epoch = len(train_loader) 
+
+    steps_per_epoch = len(train_loader)
     decay_step = cfg.epoch_to_decay * steps_per_epoch
 
     lr_schedule = optax.piecewise_constant_schedule(
         init_value=cfg.learning_rate,
         boundaries_and_scales={
-            decay_step: cfg.lr_decay_factor  
+            decay_step: cfg.lr_decay_factor
         }
     )
 
@@ -192,9 +192,9 @@ def train(runid: str):
         print(f"Epoch {epoch+1}/{cfg.epochs}")
 
 
-        if epoch == 100: 
+        if epoch == 100:
             activate = jnp.array(1.0)
-            
+
         losses = []
         for batch in train_loader:
             key, subkey = jax.random.split(key, 2)
@@ -237,7 +237,7 @@ def train(runid: str):
         else:
             run.log({"loss_train": loss_train, "loss_test": loss_test, "learning_rate": learning_rate})
     artifact = wandb.Artifact(
-        name=f"galaxy-ae-{run.id}", 
+        name=f"galaxy-ae-{run.id}",
         type="model",
         metadata=CONFIG
     )

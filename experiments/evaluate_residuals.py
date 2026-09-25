@@ -1,65 +1,23 @@
 #!/usr/bin/env python
 r"""Residual diagnostics of trained galaxy autoencoders, on the test split.
 
-Answers three questions without any training, by comparing several checkpoints
-on exactly the same test images:
+Compares several checkpoints on the same test images, with n = (x - y) / rms:
 
-  1. Where is the noise floor, and how far above it is each model?
-  2. Where, in signal-to-noise, does one model beat another?
-  3. How many of its latent dimensions does each model actually use?
+  1. Noise floor: on background pixels (every model predicts ~0) the residual is
+     pure noise. Its spread gives c = true sigma / noise_map, and its student-t
+     NLL the lowest reachable loss. excess = loss - floor is what is left to gain.
+  2. Residuals binned by predicted SNR: where each model gains or loses. The
+     excess is split into a (Poisson noise missing from noise_map, a property of
+     the data) and f (fractional flux error, the part a better model can remove).
+  3. Latent usage: how many latent dimensions carry the variance.
 
-Why a measurement is needed
----------------------------
-If the reconstruction were perfect, the residual x - y would be pure noise and
-the student-t loss would sit at a floor that depends only on how well noise_map
-describes the real noise. With c = true sigma / noise_map, that floor is 0.483
-for c = 1.00 but 0.524 for c = 1.05: a 1% error on c moves the floor by about as
-much as everything the model has gained so far. Until c is measured, "how much is
-left to gain" has no answer.
+"loss/image" must match the loss_test logged at that epoch; if not, the split,
+epoch or checkpoint is wrong.
 
-How
----
-Most pixels of a 64x64 stamp are empty sky. There the model has nothing to
-reconstruct and predicts ~0, so the residual is the noise itself: the BACKGROUND
-calibrates noise_map, independently of the model. The SOURCE pixels then measure
-the model. Concretely, on the unmasked pixels, n = (x - y) / rms, and:
+Run from the repository root, on one GPU. Runs are directory names under
+PATH/runs; the first one is the reference:
 
-  - background = pixels where every model predicts |y| < BG_SNR * rms. Their mean
-    student-t NLL is the floor, measured directly (no Gaussian assumption); the
-    spread of n there is c.
-  - every pixel is binned by predicted SNR, |y| / rms, averaged over the models so
-    that all models are binned on the SAME pixels. Per bin: spread of n, its mean
-    (flux bias), and the share of the excess loss that bin carries.
-
-Reading it
-----------
-  - "loss (per image)" must reproduce the loss_test logged at that epoch to ~1e-4.
-    If not, the split, the epoch or the checkpoint is wrong -- trust nothing else.
-  - excess = loss - floor is what is left to gain. Its per-bin split says WHERE.
-  - Comparing two models bin by bin is immune to a wrong noise_map: both are
-    measured against the same one, so their difference is model error only.
-  - Caveat, and it is a big one: if noise_map holds only the sky noise, it misses
-    the source's own Poisson noise, and the bright pixels look bad even for a
-    PERFECT model -- "excess" then overstates what is left to gain. On synthetic
-    data with a perfect model and Poisson noise the size of the sky noise at
-    SNR ~30, excess came out at +0.12. The two causes grow differently with SNR:
-        mean(n^2) - c^2  =  a * SNR  +  f^2 * SNR^2
-    a * SNR is Poisson noise noise_map left out (a property of the DATA, so it
-    must come out the same for every model); f * SNR is a fractional flux error
-    (the MODEL's, and the part a better model can remove). Dividing by SNR makes
-    it a straight line in SNR, fitted over the bins with signal: intercept a,
-    slope f^2. The "excess m2 / SNR" column is that line, bin by bin -- flat
-    means Poisson only, rising means model error.
-  - Latent: "dims for 99% var" is the dimensionality the model really uses, and
-    the one the flow has to model. A 2-channel latent whose second channel
-    carries ~0% of the variance did not use its extra room.
-
-Run it from the repository root, on one GPU (inference only). Runs are directory
-names under $SCRATCH/pshear/cosmos/runs; the first one is the reference the others
-are compared against:
-
-    srun python -m experiments.evaluate_residuals --epoch 1000 \
-        Student-3-lr1.5e-4_<id> Student-4-latent2_<id>
+    python -m experiments.evaluate_residuals --epoch 1000 <run_a> <run_b>
 """
 import argparse
 
@@ -73,9 +31,8 @@ from experiments.utils import PATH
 
 DATASET_NAME = "VincentB03/euclid-Q1-VF"
 
-# The training test loader is sequential with drop_last=True and batch 512, so
-# loss_test covers only the first (N // 512) * 512 test images. Using the same
-# ones makes the reproduction check exact.
+# loss_test only covers the first (N // 512) * 512 test images (sequential
+# loader, drop_last): use the same ones
 TEST_BATCH = 512
 EVAL_BATCH = 128       # forward-pass batch: memory only, no effect on results
 NU = 5.0               # GalaxyAutoEncoderLoss default
@@ -85,9 +42,7 @@ SNR_EDGES = [0, 0.1, 0.3, 1, 3, 10, 30, 100, 300, np.inf]
 
 
 def column(batch, name, dtype):
-    # with_format("numpy") gives one (N, H, W) array when all rows share a
-    # shape, otherwise an object array of (H, W) arrays (see as_batch in
-    # train_partial_parallel.py); (N, 1, H, W) like the training batches
+    # (N, 1, H, W), like the training batches (see as_batch in train_partial_parallel.py)
     col = np.asarray(batch[name])
     col = np.stack(col) if col.dtype == object else col
     return col.astype(dtype, copy=False)[:, None]
@@ -113,15 +68,14 @@ def student_t_nll(r, sigma2):
 
 
 def per_image_mean(v, m):
-    # exactly the loss's reduction: masked mean per image, then mean over images
+    # same reduction as the loss: masked mean per image, then mean over images
     return ((v * m).sum(axis=(1, 2, 3)) / (m.sum(axis=(1, 2, 3)) + EPS)).mean()
 
 
 def poisson_and_flux_error(n, snr, mask, c2):
     # fit (mean(n^2) - c^2) / <SNR> = a + f^2 * <SNR^2>/<SNR> over the bins with
-    # signal (SNR >= 1): a = Poisson noise missing from noise_map (data), f = an
-    # effective fractional flux error (model). Second moment, not variance, so
-    # that a biased model (e.g. a flux scale off by 5%) counts as an error too.
+    # SNR >= 1: a = Poisson noise missing from noise_map (data), f = fractional
+    # flux error (model)
     xs, ys = [], []
     for lo, hi in zip(SNR_EDGES[:-1], SNR_EDGES[1:]):
         sel = mask & (snr >= max(lo, 1)) & (snr < hi)
@@ -150,8 +104,6 @@ def latent_usage(z):
     }
 
 
-# runs on the command line rather than as constants here: nothing to edit on the
-# cluster, so the checkout stays clean for the next git pull
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("runs", nargs="+",
                     help="run directories under PATH/runs; the first is the reference")
@@ -188,13 +140,12 @@ for run in RUNS:
     results[run] = {"y": y, "n": r / sigma, "nll": student_t_nll(r, sigma2),
                     "chi2": r ** 2 / sigma2, "z": z}
 
-# 3) shared pixel classes: binned on the models' MEAN prediction, so every model
-# is judged on exactly the same pixels
+# 3) pixels binned on the models' mean prediction, so all models are compared
+# on the same pixels
 snr = np.mean([np.abs(res["y"]) for res in results.values()], axis=0) / sigma
 bg = mask & (snr < BG_SNR)
 floors = {run: res["nll"][bg].mean() for run, res in results.items()}
-# the model with the cleanest background sets the floor: a model that paints
-# spurious structure on empty sky can only raise its own background NLL
+# the model with the cleanest background sets the floor
 floor = min(floors.values())
 n_bg = results[RUNS[0]]["n"][bg]
 c_std = n_bg.std()

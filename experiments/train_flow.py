@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Normalizing flow training on the latent space of a frozen autoencoder."""
 import os
 import jax
 import jax.numpy as jnp
@@ -23,16 +24,11 @@ import matplotlib
 import wandb
 
 CONFIG = {
-    # frozen autoencoder to encode galaxies into latent codes
-    # PATH / "runs" / ae_run_dir / f"model_checkpoint_{ae_epoch}.eqx" (+ config.yaml)
+    # frozen autoencoder: PATH/runs/<ae_run_dir>/model_checkpoint_<ae_epoch>.eqx
     "ae_run_dir": "Student-5-latent1_zevvjxej",
     "ae_epoch": 1000,
-    # flow (unconditional)
-    # MAF + rational-quadratic splines: the autoencoder's softclip2 saturation
-    # bounds every latent to the open interval (-5, 5) and can pile mass near the
-    # edges, so the flow needs a bounded, non-affine transformer. `interval` is
-    # set to the saturation bound; outside it the spline is linear, where there
-    # is essentially no data anyway.
+    # unconditional MAF with rational-quadratic splines on [-interval, interval]:
+    # the autoencoder's softclip2 saturation bounds the latents to (-5, 5)
     "flow_type": "MAF",
     "flow_layers": 4,
     "latent_dim": [1, 4, 4],
@@ -114,7 +110,7 @@ def train(runid: str = None):
 
     key = jax.random.key(0)
 
-    # frozen, pretrained autoencoder: never updated, only used to (de)code latents
+    # frozen autoencoder, only used to encode/decode latents
     ae = load_galaxy_autoencoder(PATH / "runs" / cfg.ae_run_dir, epoch=cfg.ae_epoch)
     ae = eqx.nn.inference_mode(ae, value=True)
 

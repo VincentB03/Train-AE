@@ -62,18 +62,12 @@ def _unwrap_wandb_config(cfg):
     return result
 
 def fetch_wandb_checkpoint(run_path, epoch, cache_dir="wandb_weights"):
-    """
-    Downloads (and caches under `cache_dir`) a run's config.yaml and
-    model_checkpoint_<epoch>.eqx from Weights & Biases -- the layout
-    written by `dump_galaxy_autoencoder`/`dump_flow` -- and returns the
-    local `epoch_dir` containing both files, so `load_galaxy_autoencoder`/
-    `load_flow` can read it directly.
+    """Download a run's config.yaml and model_checkpoint_<epoch>.eqx from W&B
+    into `cache_dir`/<run_id>/epoch_<epoch>/ and return that directory, ready
+    for `load_galaxy_autoencoder` / `load_flow`.
 
-    If both files are already cached (e.g. pre-downloaded on a machine
-    with internet access and copied over, or a compute node with no
-    network access at all), the WandB API is skipped entirely.
-
-    `run_path` is wandb's "entity/project/run_id" identifier.
+    W&B is not contacted if both files are already cached (offline nodes).
+    `run_path` is "entity/project/run_id".
     """
     import shutil
 

@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+"""Autoencoder training with the partial PSF, data-parallel over the GPUs of one node.
+
+A single process drives every GPU (no jax.distributed): submit with ONE task,
+e.g. --ntasks=1 --gres=gpu:4. Model, EMA and optimizer state are replicated,
+`batch_size` is the global batch split across GPUs, and gradients are averaged
+with pmean inside shard_map.
+"""
 import os
 import inspect
 import time
@@ -15,7 +22,6 @@ from pshear.galaxy import GalaxyAutoEncoderLoss, make_galaxy_autoencoder
 from pshear.utils import dump_galaxy_autoencoder
 
 from datasets import load_dataset
-# data augmentation: random horizontal/vertical flips (train only)
 from experiments.utils import PATH, plot_ae_residuals
 
 import wandb
@@ -25,9 +31,8 @@ try:
 except ImportError:
     from jax.experimental.shard_map import shard_map  # older JAX
 
-# Keyword that turns shard_map's replication check off: it was named check_rep
-# in jax.experimental and renamed check_vma when shard_map became public, so
-# pick whichever the installed JAX accepts (see the comment on sharded_grads).
+# Keyword that disables shard_map's replication check: check_rep in older JAX,
+# check_vma in recent JAX (see sharded_grads below).
 try:
     _shard_map_params = inspect.signature(shard_map).parameters
 except (TypeError, ValueError):  # pragma: no cover - unusual wrapping
@@ -39,66 +44,19 @@ elif "check_rep" in _shard_map_params:
 else:
     NO_REP_CHECK = {}
 
-# Data-parallel version of train_test_partial.py for ONE node with several GPUs
-# (Jean Zay V100 quad-GPU node: 4 GPUs).
-#
-# Single-controller: a single Python process sees and drives every GPU of the
-# node, so jax.distributed.initialize() is NOT called and the job must be
-# submitted with ONE task. Launching one task per GPU without
-# jax.distributed.initialize() would silently start independent trainings that
-# never synchronise their gradients -- a guard in train() refuses to run then.
-#
-# Strategy (Mesh + NamedSharding + jax.jit, no pmap):
-#   - model params, EMA params and optimizer state are replicated on every GPU
-#     (NamedSharding(mesh, P()));
-#   - `batch_size` is the GLOBAL batch: the DataLoader builds it once in host
-#     RAM, then shard_batch() sends each GPU only its batch_size // num_devices
-#     examples (NamedSharding(mesh, P("data")));
-#   - the forward/backward pass runs inside shard_map, so each GPU computes the
-#     loss on its own slice only, whatever the XLA partitioner thinks of the
-#     jax-galsim FFT convolution; gradients and loss are then averaged with
-#     pmean. Shards are equal-sized, so the mean of the per-GPU means is the
-#     global batch mean.
-#   - 128 examples per GPU: the global batch (512 with 4 GPUs) is 4x the one of
-#     train_test_partial.py, i.e. 4x fewer optimizer steps per epoch. Adam betas
-#     kept, EMA decay 0.999**4 (same averaging horizon in epochs); the learning
-#     rates are no longer the sqrt-scaling guess but come from a measurement,
-#     see the CONFIG entries below.
-#   - per-example RNG keys (flips, dropout) are drawn for the global batch and
-#     then sharded, exactly like in train_test_partial.py, so two GPUs never
-#     reuse the same random draws.
 CONFIG = {
     "use_jax_galsim": True,
     "minimum_fft_size": 128,
     "nx": 64,
     "ny": 64,
-    "scale": 0.1,  # arcsec/pixel — Euclid VIS pixel scale is 0.1 arcsec/pixel
-    # The encoder sees asinh(sci_subtracted / asinh_scale) instead of the raw
-    # flux (see GalaxyAutoEncoder.encode). Only the encoder input changes: the
-    # loss still compares the raw image to the PSF-convolved decoder output,
-    # weighted by the raw noise_map. None: raw flux input.
-    # asinh(x/s) is linear for |x| << s and logarithmic for |x| >> s, so s is
-    # the typical pixel noise sigma: noise stays in the linear regime, only the
-    # bright parts are compressed. s is one fixed value (not a per-stamp or
-    # per-pixel rms): the decoder must return absolute fluxes without seeing s,
-    # and a per-pixel scale would distort the image seen by the encoder.
-    # How it was measured:
-    #   rms = dset_train[:5000]["noise_map"]           # (N, 64, 64), shuffled split
-    #   s = np.median(np.median(rms, axis=(1, 2)))     # median of per-stamp medians
-    # cross-check with the data itself (stamps are mostly background):
-    #   x = dset_train[:5000]["sci_subtracted"]
-    #   sigma = 1.4826 * np.median(np.abs(x - np.median(x, axis=(1, 2), keepdims=True)), axis=(1, 2))
-    #   np.median(sigma)
-    # euclid-Q1-VF, first parquet shard (8368 stamps): per-stamp noise medians
-    # 2.72-3.36 (1st-99th percentile), s = 2.81, MAD cross-check 2.89. Encoder
-    # input goes from [-8, 4e4] (raw) to [-1.8, 10.2] (99.9th percentile 4.8).
+    "scale": 0.1,  # arcsec/pixel (Euclid VIS)
+    # Encoder input is asinh(x / asinh_scale); the loss stays in raw flux.
+    # 2.8 ~ median pixel noise sigma (noise_map) on euclid-Q1-VF: noise stays
+    # linear, only bright pixels are compressed. None: raw flux input.
     "asinh_scale": 2.8,
     "in_channels": 1,
-    # 2 -> 1: the latent goes back from 2x4x4 = 32 numbers (Student-4-latent2,
-    # compression 128:1) to 1x4x4 = 16 (256:1). The parameter count does not
-    # depend on it (8.86 M either way), so only the bottleneck changes. 1 is the
-    # smallest latent this architecture allows: going below 16 numbers would
-    # need another downsampling stage (a 2x2 latent), not fewer channels.
+    # latent = latent_channels x 4 x 4 = 16 numbers, the smallest this
+    # architecture allows (fewer would need another downsampling stage)
     "latent_channels": 1,
     "hid_channels": (32, 32, 64, 128, 256),
     "hid_blocks": (2, 2, 2, 2, 2),
@@ -107,50 +65,25 @@ CONFIG = {
     "stride": 2,
     "dropout": 0.05,
     "kernel_size": 3,
-    "batch_size": 512,     # GLOBAL batch = 128 per GPU x 4 GPUs, must be divisible by num_devices
+    "batch_size": 512,     # global batch (128 per GPU x 4), divisible by num_devices
     "epochs": 1000,
-    # Learning rates measured with experiments/lr_range_test.py, not derived
-    # from the square-root scaling rule that produced the previous 2e-5 peak.
-    # Two probes, each a run that is nothing but a linear warmup over 60 epochs,
-    # both sweeping through 4.8e-4:
-    #   - ramping to 5e-4, that LR arrives at step 5241: stable, and the logged
-    #     residuals were still improving at the end of the run;
-    #   - ramping to 5e-3, it arrives at step 523: slight rise, then NaN.
-    # The ceiling is therefore not an absolute LR but an LR relative to how
-    # trained the model already is -- which is exactly what warmup is for. Peak
-    # = LR_max / 3, and warmup_epochs stays long enough (20 epochs ~ 10000 steps
-    # on the 260k dataset, ~1800 on the 50k one) to cover the fragile early phase
-    # the second probe exposed -- either way ~2% of the run, since the warmup is
-    # expressed in epochs and the run length is too.
-    #
-    # On this model NaN is the divergence signal, not a rising loss: the
-    # student-t gradient (nu+1)*e / (nu*sigma^2 + e^2) is bounded by 0.48 and
-    # *decreases* for large errors, so the loss cannot blow up smoothly and the
-    # failure surfaces further down, in the jax-galsim convolution.
+    # peak = LR_max / 3, with LR_max measured by experiments/lr_range_test.py.
+    # Divergence shows up as NaN (in the jax-galsim convolution), not as a
+    # rising loss: the student-t gradient is bounded.
     "init_learning_rate": 1.5e-6,
     "peak_learning_rate": 1.5e-4,
     "end_learning_rate": 1.5e-6,
     "warmup_epochs": 20,
-    # = epochs, so the cosine spans the whole run. It used to end at epoch 300
-    # of 2000: 85% of the run then ran at 1% of the peak LR and loss_train went
-    # flat around epoch 250 -- that plateau was the schedule dying, not
-    # convergence. 91k steps now do useful work, against 27.3k before.
-    "lr_decay_epochs": 1000,
+    "lr_decay_epochs": 1000,  # = epochs: the cosine spans the whole run
     "weight_decay": 1e-4,
-    # 0.999 at batch 128; beta**4 keeps the same averaging horizon in epochs
-    # with 4x fewer steps per epoch
+    # 0.999 at batch 128, to the power 4 to keep the same horizon with 4x
+    # fewer steps per epoch
     "ema_decay": 0.999 ** 4,
     "losses": ["student_t_masked"],
     "weights": [1.0],
-    # at 10, a 2000-epoch run wrote 200 checkpoints of 35 MB and had wandb.save
-    # re-sync the whole growing directory every time
-    "log_freq": 50,
+    "log_freq": 50,        # checkpoint + residual plot every log_freq epochs
     "num_devices": 4,      # GPUs this process must see; None accepts any count
-    # W&B destination. Kept in CONFIG so that a run with different
-    # hyperparameters (a probe, an LR range test) can be redirected without
-    # touching train(), and so that two runs never share a name in the UI.
-    # make_galaxy_autoencoder() absorbs the extra keys when a checkpoint's
-    # config.yaml is reloaded, like the other non-architecture entries here.
+    # W&B destination (overridden by lr_range_test.py)
     "wandb_project": "Test-AE-partial-4-parallel-260k",
     "wandb_name": "Student-5-latent1",
 }
@@ -172,8 +105,7 @@ def random_flip(x, key, axis):
 
 
 def augment_single(example, key):
-    # example[k] has shape (H, W); the same key is used for every field so
-    # image, PSF, noise map and mask stay consistent with each other
+    # same flips for every field, so image, PSF, noise map and mask stay aligned
     keys = jax.random.split(key, 2)
     out = dict(example)
     for k in AUGMENT_KEYS:
@@ -188,32 +120,28 @@ augment_batch = jax.vmap(augment_single)
 # dataset column -> batch field
 COLUMNS = {
     "sci_subtracted": "sci_subtracted",
-    "psf_residual": "psf_stamp",
+    "psf_residual": "psf_stamp",  # partial PSF
     "noise_map": "noise_map",
     "binary_mask": "binary_mask",
 }
 
 
-# Dtype each field is narrowed to inside the worker, before the batch travels
-# through shared memory to the main process. binary_mask is stored as int64,
-# 8 bytes per pixel for a 0/1 flag, and is half of a batch's bytes on its own;
-# as bool it is 8x smaller. JAX widens it back on device (nll * mask promotes
-# to float32, mask.sum() counts the same).
+# Narrowed in the worker to cut shared-memory traffic: the int64 mask is 8x
+# smaller as bool.
 BATCH_DTYPES = {"binary_mask": np.bool_}
 
 
 def as_batch(column, dtype=None):
-    # with_format("numpy") gives one (B, H, W) array when all rows share a
-    # shape, otherwise an object array of (H, W) arrays
+    # with_format("numpy") gives a (B, H, W) array, or an object array of
+    # (H, W) arrays when shapes differ
     column = np.asarray(column)
     batch = np.stack(column) if column.dtype == object else column
     return batch if dtype is None else batch.astype(dtype, copy=False)
 
 
 class HFDataset(Dataset):
-    # Indexed with a whole list of indices (see make_loader): one batched Arrow
-    # lookup per batch instead of batch_size single-row lookups + np.stack, so
-    # the loader can keep up with 4 GPUs.
+    # Indexed with a list of indices: one Arrow lookup per batch, fast enough
+    # to feed 4 GPUs.
     def __init__(self, hf_dataset):
         self.dataset = hf_dataset.select_columns(list(COLUMNS))
 
@@ -229,8 +157,7 @@ class HFDataset(Dataset):
 
 
 def identity(batch):
-    # module-level (not a lambda): picklable if workers are spawned instead of
-    # forked (macOS, Python >= 3.14 on Linux)
+    # module-level (not a lambda) so that spawned workers can pickle it
     return batch
 
 
@@ -243,20 +170,13 @@ def make_loader(hf_dataset, batch_size, shuffle=False, seed=0):
         sampler = SequentialSampler(dataset)
     return DataLoader(
         dataset,
-        # the sampler yields whole batches of indices, so automatic batching is
-        # disabled (batch_size=None) and each worker builds a full global batch
+        # the sampler yields whole batches of indices: each worker builds a
+        # full global batch (batch_size=None disables automatic batching)
         sampler=BatchSampler(sampler, batch_size=batch_size, drop_last=True),
         batch_size=None,
         collate_fn=identity,
-        # one worker per CPU of the task, capped: the main process also needs
-        # CPU to dispatch the GPU work.
-        #
-        # 32 was tried and reverted: with the whole node (40 cores) it made
-        # things slightly worse, 4502 samples/s against 4740 and data_wait_frac
-        # 0.28 against 0.26. The limit is not the workers but the main process,
-        # which assembles each batch and pushes it to the devices with
-        # make_array_from_process_local_data single-threaded; extra workers only
-        # add contention and shared-memory traffic.
+        # capped at 16: more workers (32 tested) did not help, the main process
+        # is the bottleneck
         num_workers=min(int(os.environ.get("SLURM_CPUS_PER_TASK", 4)), 16),
         prefetch_factor=2,
         pin_memory=False,
@@ -265,16 +185,14 @@ def make_loader(hf_dataset, batch_size, shuffle=False, seed=0):
 
 
 def shard_batch(batch, sharding):
-    # host (numpy) global batch -> global jax.Array split along its first axis:
-    # each GPU only receives its own slice, the full batch is never put on a
-    # single device
+    # host batch -> global jax.Array split along axis 0, each GPU gets its slice
     return jax.tree_util.tree_map(
         lambda x: jax.make_array_from_process_local_data(sharding, x), batch
     )
 
 
 def train(runid: str):
-    # number of launched copies of this script: srun (SLURM_*), mpirun (OMPI_*, PMI_*)
+    # one process per GPU without jax.distributed would train independent models
     n_tasks = max(
         int(os.environ.get(var, 1))
         for var in ("SLURM_NTASKS", "SLURM_STEP_NUM_TASKS", "OMPI_COMM_WORLD_SIZE", "PMI_SIZE")
@@ -305,12 +223,10 @@ def train(runid: str):
         f"devices {num_devices}."
     )
 
-    # Same config on every process (not run.config, which only exists where
-    # wandb.init was called).
+    # not run.config, which only exists where wandb.init was called
     cfg = types.SimpleNamespace(**CONFIG)
 
-    # W&B and checkpoints only on process 0. Single-controller means there is
-    # only one process anyway, the guard is kept as a safety net.
+    # W&B and checkpoints on process 0 only
     if is_main:
         run = wandb.init(
             project=cfg.wandb_project,
@@ -324,7 +240,7 @@ def train(runid: str):
         exp_path.mkdir(parents=True, exist_ok=True)
 
         print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-postage-stamps", split="train", keep_in_memory=True)  # Try keeping in memory for faster training
+    dset = load_dataset("VincentB03/euclid-Q1-postage-stamps", split="train", keep_in_memory=True)
 
     dset = dset.train_test_split(test_size=5000, seed=42)
     dset = dset.with_format("numpy")
@@ -418,7 +334,7 @@ def train(runid: str):
     def local_grads(params, batch, aug_keys, keys, activate):
         batch = augment_batch(batch, aug_keys)
         loss_value, grads = jax.value_and_grad(loss)(params, batch, keys, activate)
-        # the only communication of the step: all-reduce of loss and gradients
+        # all-reduce of loss and gradients
         return jax.lax.pmean((loss_value, grads), axis_name="data")
 
     def local_test_loss(ema_params, batch, keys, activate):
@@ -439,12 +355,8 @@ def train(runid: str):
         y, _, _ = jax.vmap(model)(img, psf)
         return y
 
-    # NO_REP_CHECK: with the check left on (the default), JAX >= 0.11 tags the
-    # arrays inside shard_map with "varying manual axes" ({V:data}). jax-galsim
-    # calls equinox.error_if, a lax.cond whose two branches then have mismatched
-    # types (one varying, one not), which raises at trace time. Turning the
-    # check off removes the tagging; pmean still replicates its outputs, but JAX
-    # no longer verifies that out_specs=P() really is replicated.
+    # Replication check off: with JAX >= 0.11 it makes jax-galsim's
+    # equinox.error_if fail at trace time. pmean still replicates the outputs.
     sharded_grads = shard_map(
         local_grads, mesh=mesh,
         in_specs=(P(), P("data"), P("data"), P("data"), P()),
@@ -464,7 +376,7 @@ def train(runid: str):
     # --- global steps: jit with explicit input/output shardings ----------------
     # Arguments are passed positionally (jit with in_shardings rejects kwargs).
     def opt_step(params, ema_params, opt_state, batch, key, activate):
-        # same key derivation as train_test_partial.py, over the GLOBAL batch
+        # per-example keys drawn over the global batch, then sharded
         batch_size = batch["sci_subtracted"].shape[0]
         key, aug_key = jax.random.split(key)
         aug_keys = jax.random.split(aug_key, batch_size)
@@ -502,9 +414,8 @@ def train(runid: str):
         if is_main:
             print(f"Epoch {epoch+1}/{cfg.epochs}")
 
-        # JAX dispatches GPU work asynchronously: the loop only blocks in the
-        # DataLoader (measured as data_wait) and at float(), which waits for the
-        # GPUs. A data_wait_frac close to 1 means the GPUs are starved by the loader.
+        # JAX is asynchronous: the loop only blocks in the DataLoader (data_wait)
+        # and at float(). data_wait_frac close to 1 = GPUs starved by the loader.
         epoch_start = time.perf_counter()
         data_wait = 0.0
         losses = []
@@ -550,15 +461,7 @@ def train(runid: str):
             )
 
         if (epoch + 1) % cfg.log_freq == 0:
-            # computed on every process (it is a collective when there are
-            # several), logged/saved by process 0 only.
-            #
-            # ema_params, not params: loss_test is measured on the EMA model
-            # (see local_test_loss), so the residual plot and the checkpoint
-            # have to show that same model. Saving the raw params instead meant
-            # the logged loss_test described one model while train_flow.py and
-            # verification.py reloaded another -- and it was one of the reasons
-            # loss_test came out *below* loss_train.
+            # EMA model: the one loss_test is measured on, and the one saved
             img = np.expand_dims(batch["sci_subtracted"], axis=1)
             psf = np.expand_dims(batch["psf_stamp"], axis=1)
             y = predict(ema_params, shard_batch(img, data_sharding), shard_batch(psf, data_sharding))
@@ -568,7 +471,6 @@ def train(runid: str):
                 metrics["fit_and_residuals"] = wandb.Image(x)
                 run.log(metrics)
 
-                # replicated arrays are read back from one GPU when serialised
                 model = eqx.nn.inference_mode(eqx.combine(ema_params, static), True)
                 dump_galaxy_autoencoder(exp_path, model, epoch + 1, CONFIG)
                 wandb.save(str(exp_path / "*"), base_path=str(exp_path.parent))

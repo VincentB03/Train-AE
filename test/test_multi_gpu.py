@@ -1,6 +1,5 @@
-# First thing to run on Jean Zay, before any training: checks that JAX sees the
-# GPUs of the node and that they can communicate (NCCL all-reduce). Needs only jax.
-#   python test/test_multi_gpu.py            (inside the job, 1 task, --gres=gpu:4)
+# Checks that JAX sees the GPUs of the node and can all-reduce across them (NCCL).
+# Run inside the job, with 1 task: python test/test_multi_gpu.py
 import os
 import jax
 import jax.numpy as jnp

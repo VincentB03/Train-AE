@@ -22,7 +22,7 @@ from .utils import split
 
 
 class ResBlock(eqx.Module):
-    r"""Creates a residua block"""
+    r"""Creates a residual block"""
 
     norm: eqx.Module
     block: eqx.Module
@@ -342,7 +342,6 @@ class Decoder(eqx.Module):
                     )
                 )
 
-            # channel_factor =
             up_block.append(
                 Sum(
                     UpBlock(

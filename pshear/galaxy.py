@@ -44,12 +44,8 @@ class GalaxyAutoEncoder(AutoEncoder):
         self.asinh_scale = asinh_scale
 
     def encode(self, x, key=None):
-        # asinh stretch of the ENCODER INPUT only: the decoder output, the PSF
-        # convolution and the loss (raw image, raw noise_map) stay in flux
-        # space. Done here rather than in the training scripts so that every
-        # caller (__call__, the loss, predict, train_flow, verification and
-        # reloaded checkpoints) sees the same input. None: raw flux input, as
-        # in the runs made before this option.
+        # asinh stretch of the encoder input only; decoder output, PSF
+        # convolution and loss stay in flux space. None: raw flux input.
         if self.asinh_scale is not None:
             x = jnp.arcsinh(x / self.asinh_scale)
         return super().encode(x, key)
@@ -111,15 +107,15 @@ class GalaxyAutoEncoderLoss(eqx.Module):
             elif name == "chi2":
                 eps = 1e-8
                 variance = (rms ** 2) + eps
-                weights = 1.0 / variance 
+                weights = 1.0 / variance
                 loss = (((x - y) ** 2) * weights).mean()
             elif name == "chi2_masked":
                 eps = 1e-8
                 variance = (rms ** 2) + eps
-                weights = 1.0 / variance                        
+                weights = 1.0 / variance
                 sq_err = ((x - y) ** 2) * weights
                 masked = sq_err * mask
-                loss = masked.sum() / (mask.sum() + eps) 
+                loss = masked.sum() / (mask.sum() + eps)
             elif name == "mae_final":
                 eps = 1e-8
                 weights = 1.0 / (rms + eps)
@@ -157,13 +153,8 @@ def make_galaxy_autoencoder(
 ):
     if isinstance(kernel_size, int):
         kernel_size = [kernel_size] * 2
-    # wandb's Config is JSON-backed, so a dict hyperparameter like
-    # {4: 4} can come back with string keys ({'4': 4}) once read via
-    # `run.config` -- silently breaking the `attention_heads.get(i, None)`
-    # lookups in Encoder/Decoder (int i never matches str '4'), so a stage
-    # meant to have attention silently gets nn.Identity() instead. Coercing
-    # here, once, before the dict reaches Encoder/Decoder covers every
-    # caller (all training scripts, and reloading past checkpoints).
+    # W&B configs can turn int keys into strings ({'4': 4}), which would
+    # silently disable attention
     attention_heads = {int(k): v for k, v in attention_heads.items()}
     kwargs = dict(kernel_size=kernel_size, padding=[k // 2 for k in kernel_size])
     keys = jax.random.split(key, 2)

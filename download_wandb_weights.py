@@ -1,15 +1,10 @@
 #!/usr/bin/env python
-"""Download (and cache) the weights of a Weights & Biases run for the AE and/or
-flow models, in the layout expected by `pshear.utils.load_galaxy_autoencoder` /
-`load_flow`:
+"""Download the AE and/or flow checkpoints of a W&B run into
 
-    wandb_weights/<run_id>/config.yaml
-    wandb_weights/<run_id>/epoch_<n>/model_checkpoint_<n>.eqx
-    wandb_weights/<run_id>/epoch_<n>/config.yaml   (run config, "de-wandbified")
+    wandb_weights/<run_id>/epoch_<n>/model_checkpoint_<n>.eqx  (+ config.yaml)
 
-Run this from a login node (with network access): the resulting cache can then be
-reused as-is on a compute node without network, where `fetch_wandb_checkpoint`
-skips the WandB API entirely.
+the layout read by `pshear.utils.load_galaxy_autoencoder` / `load_flow`. Run it
+on a node with network access; offline compute nodes then reuse the cache.
 
 Usage:
     python download_wandb_weights.py                 # use the CONFIG block below
@@ -23,7 +18,7 @@ from pathlib import Path
 from pshear.utils import fetch_wandb_checkpoint
 
 # =============================================================================
-# CONFIGURATION — the only parameters to edit
+# CONFIGURATION (every value can also be set from the command line)
 # =============================================================================
 WANDB_ENTITY = "vincentb03-imt-atlantique"
 
@@ -37,8 +32,7 @@ WANDB_PROJECT_FLOW = "pshear-euclid-flow"
 FLOW_RUN_ID = "4q23te9a"
 FLOW_EPOCH_TO_LOAD = 420
 
-# Cache root, relative to the repo (independent of $SCRATCH), same convention as
-# experiments/verification.py.
+# relative to the repo root, like experiments/verification.py
 CACHE_DIR = Path(".") / "wandb_weights"
 # =============================================================================
 
