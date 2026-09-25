@@ -40,7 +40,7 @@ AE_RUN_PATH = f"{WANDB_ENTITY}/AE-partial-droppedDB/i344nq38"
 AE_EPOCH = 2000
 FLOW_RUN_PATH = f"{WANDB_ENTITY}/pshear-euclid-flow-dropped-db/9i28jqsm"
 FLOW_EPOCH = 500
-DATASET_NAME = "VincentB03/euclid-Q1-postage-stamps"
+DATASET_NAME = "VincentB03/Euclid-Q1-postage-stamps"
 
 N_EVAL = 2000        # samples per side of one PQMass comparison
 N_SPLITS = 200       # (x, y) pairs per test; one p-value each

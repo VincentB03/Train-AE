@@ -15,8 +15,8 @@ Two Hugging Face datasets. Each sample contains a science image, its PSF (full a
 
 | Dataset | Galaxies | Used by |
 |---|---|---|
-| [euclid-Q1-VF](https://huggingface.co/datasets/VincentB03/euclid-Q1-VF) | ~50k | `train_test.py`, `train_test_partial.py`, `evaluate_residuals.py` |
-| [Euclid-Q1-postage-stamps](https://huggingface.co/datasets/VincentB03/Euclid-Q1-postage-stamps) | ~260k | `train_partial_parallel.py`, `train_flow.py`, `verification.py` |
+| [euclid-Q1-VF](https://huggingface.co/datasets/VincentB03/euclid-Q1-VF) | ~50k | `train_test.py`, `train_test_partial.py` |
+| [Euclid-Q1-postage-stamps](https://huggingface.co/datasets/VincentB03/Euclid-Q1-postage-stamps) | ~260k | `train_partial_parallel.py`, `train_flow.py`, `verification.py`, `evaluate_residuals.py` |
 
 The model was developed on **euclid-Q1-VF** (just over 50k galaxies). It was then also trained on **Euclid-Q1-postage-stamps** (about 260k galaxies), which seems to give better results.
 
@@ -41,11 +41,10 @@ test/                         Environment and multi-GPU sanity checks
 
 ## Installation
 
-JAX and PyTorch (only its `DataLoader` is used) are installed separately, with the CUDA build that matches the machine:
+JAX is installed separately, with the CUDA build that matches the machine:
 
 ```
 pip install -U "jax[cuda12]"
-pip install torch
 pip install -r requirements.txt
 pip install "pqm>=0.6"            # only for verification.py
 ```
@@ -85,4 +84,12 @@ python download_wandb_weights.py --only flow --flow-run-id <id> --flow-epoch <n>
 python download_wandb_weights.py --cache-dir <dir>         # other destination
 ```
 
-The W&B entity and run IDs are set at the top of `download_wandb_weights.py` and `verification.py`. The [galaxy-morphometrics](https://github.com/VincentB03/galaxy-morphometrics) repository reads the same `wandb_weights/` layout, so `--cache-dir` can point directly at its checkpoint directory.
+The [galaxy-morphometrics](https://github.com/VincentB03/galaxy-morphometrics) repository reads the same `wandb_weights/` layout, so `--cache-dir` can point directly at its checkpoint directory.
+
+## Note: hard-coded identifiers
+
+Some Weights & Biases and Hugging Face identifiers are hard-coded and must be changed by anyone else using this repository:
+
+- **W&B entity and run IDs** (`vincentb03-imt-atlantique`): `WANDB_ENTITY` and the run IDs at the top of `download_wandb_weights.py` and `verification.py`.
+- **W&B project names**: `wandb_project` in the `CONFIG` of `train_partial_parallel.py` and `lr_range_test.py`, and `project=` in `wandb.init` in `train_test.py`, `train_test_partial.py` and `train_flow.py`.
+- **Hugging Face datasets** (`VincentB03/...`): the `load_dataset` calls in the training scripts, `DATASET_NAME` in `verification.py` and `evaluate_residuals.py`, and `test/test_requirements.py`. Change them if the datasets are moved to another account.

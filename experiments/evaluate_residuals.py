@@ -29,7 +29,7 @@ from datasets import load_dataset
 from pshear.utils import load_galaxy_autoencoder
 from experiments.utils import PATH
 
-DATASET_NAME = "VincentB03/euclid-Q1-VF"
+DATASET_NAME = "VincentB03/Euclid-Q1-postage-stamps"
 
 # loss_test only covers the first (N // 512) * 512 test images (sequential
 # loader, drop_last): use the same ones
@@ -115,7 +115,7 @@ RUNS, EPOCH = args.runs, args.epoch
 # 1) the test images, SAME split as training (seed=42)
 print(f"Loading {DATASET_NAME}")
 dset = load_dataset(DATASET_NAME, split="train", keep_in_memory=True)
-dset_test = dset.train_test_split(test_size=0.1, seed=42)["test"].with_format("numpy")
+dset_test = dset.train_test_split(test_size=5000, seed=42)["test"].with_format("numpy")
 n_eval = (len(dset_test) // TEST_BATCH) * TEST_BATCH
 batch = dset_test.select_columns(
     ["sci_subtracted", "psf_residual", "noise_map", "binary_mask"]

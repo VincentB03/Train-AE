@@ -101,7 +101,7 @@ def train(runid: str = None):
     exp_path.mkdir(parents=True, exist_ok=True)
 
     print("Loading Dataset from Hugging Face")
-    dset = load_dataset("VincentB03/euclid-Q1-postage-stamps", split="train", keep_in_memory=True)
+    dset = load_dataset("VincentB03/Euclid-Q1-postage-stamps", split="train", keep_in_memory=True)
     dset = dset.train_test_split(test_size=5000, seed=42)
     dset = dset.with_format("numpy")
 

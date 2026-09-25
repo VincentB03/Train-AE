@@ -46,7 +46,7 @@ try:
     from datasets import load_dataset
 
     print("Loading Dataset from local cache...")
-    dataset_name = "VincentB03/euclid-Q1-V2"
+    dataset_name = "VincentB03/Euclid-Q1-postage-stamps"
 
     ds = load_dataset(dataset_name, split="train")
 
